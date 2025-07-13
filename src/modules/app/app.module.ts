@@ -26,8 +26,6 @@ import { RunModule } from '../run/run.module';
 
         QUERY_LOG_ENABLE: Joi.boolean().required(),
         MAX_QUERY_RETRY: Joi.number().required(),
-        
-        API_SECRET: Joi.string().required(),
       }),
     }),
     DatabaseModule,

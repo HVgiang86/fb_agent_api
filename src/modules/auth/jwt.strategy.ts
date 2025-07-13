@@ -1,7 +1,8 @@
-import { ExtractJwt, Strategy } from 'passport-jwt';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
-import { Injectable } from '@nestjs/common';
+import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
+import { JwtPayload } from './intefaces/token-payload.interface';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -13,8 +14,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async validate(payload: any) {
-    return { userId: payload.sub, phone: payload.phone };
+  async validate(payload: JwtPayload): Promise<any> {
+    if (!payload.userId) {
+      throw new UnauthorizedException();
+    }
+
+    return {
+      id: payload.userId,
+      username: payload.username,
+      name: payload.name,
+    };
   }
 }
