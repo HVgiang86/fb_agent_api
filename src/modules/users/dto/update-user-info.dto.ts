@@ -1,56 +1,39 @@
+import { ApiProperty } from '@nestjs/swagger';
 import {
-  IsString,
-  IsNotEmpty,
-  IsEmail,
   IsOptional,
+  IsString,
+  IsEmail,
   IsDateString,
   IsEnum,
-  MinLength,
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
 import { Gender } from '../entities/users.entity';
 
-export class CreateUserDto {
-  @ApiProperty({
-    description: 'Tên đăng nhập',
-    example: 'john_doe',
-  })
-  @IsString()
-  @IsNotEmpty()
-  username: string;
-
-  @ApiProperty({
-    description: 'Mật khẩu',
-    example: 'password123',
-  })
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(6)
-  password: string;
-
+export class UpdateUserInfoDto {
   @ApiProperty({
     description: 'Họ và tên',
     example: 'Nguyễn Văn A',
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  fullName: string;
+  fullName?: string;
 
   @ApiProperty({
     description: 'Email',
     example: 'john.doe@example.com',
+    required: false,
   })
+  @IsOptional()
   @IsEmail()
-  @IsNotEmpty()
-  email: string;
+  email?: string;
 
   @ApiProperty({
     description: 'Số điện thoại',
     example: '0123456789',
     required: false,
   })
-  @IsString()
   @IsOptional()
+  @IsString()
   phone?: string;
 
   @ApiProperty({
@@ -58,8 +41,8 @@ export class CreateUserDto {
     example: 'Hà Nội, Việt Nam',
     required: false,
   })
-  @IsString()
   @IsOptional()
+  @IsString()
   address?: string;
 
   @ApiProperty({
@@ -67,17 +50,17 @@ export class CreateUserDto {
     example: '2002-06-08T00:00:00Z',
     required: false,
   })
-  @IsDateString()
   @IsOptional()
+  @IsDateString()
   dateOfBirth?: string;
 
   @ApiProperty({
     description: 'Giới tính',
     enum: Gender,
-    example: Gender.MALE,
+    example: 'male',
     required: false,
   })
-  @IsEnum(Gender)
   @IsOptional()
+  @IsEnum(Gender)
   gender?: Gender;
 }

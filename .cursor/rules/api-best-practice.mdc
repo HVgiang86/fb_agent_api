@@ -1,0 +1,433 @@
+---
+alwaysApply: true
+---
+
+# API Best Practices - NestJS ChatBot Banking System
+
+Các quy tắc bắt buộc phải tuân theo khi viết các API:
+
+- Kiểu dữ liệu ngày tháng trong data body và data response luôn ở dạng string, format ISO 8601. Trước khi trả về response hoặc sau khi nhận từ body request cần parse string này về dạng Date để phù hợp với MySql database của hệ thống
+- Các kiểu dữ liệu là enum nhận từ data body request luôn phải được validate nằm trong các giá trị hợp lệ (dựa theo mô tả project hoặc dựa theo dữ liệu trong bảng tương ứng).
+- Param của API luôn phải được validate, nếu là dạng id phải validate id này tồn tại
+- API luôn phải validate dữ liệu đầu vào cho từng trường, luôn đặt ra kế hoạch validate sau đó triển khai.
+- Các API phải trả về html status code trùng với trường statusCode trong response (sử dụng exception để xử lý các trường hợp lỗi thay vì return response)
+- Sử dụng hàm formatDateToISO để format sang dạng string ISO 8601, formatDateOnly để format sang dạng string YYYY-MM-DD
+- Kiểu dữ liệu ngày tháng (date, datetime) luôn là dạng string ISO 8601 ở trong body và response, luôn phải được parse về dạng Date object trước khi trả về response hoặc lưu vào database.
+- Trong các trường hợp API là update thông tin, nếu chỉ có một số trường có data trong body request thì các trường còn lại phải giữ nguyên giá trị hiện tại của chúng.
+
+## 📋 QUY TẮC VIẾT API
+
+### 🔐 1. Authentication & Authorization
+
+```typescript
+// Luôn thêm @ApiBearerAuth() cho các API cần JWT
+@ApiBearerAuth()
+@UseGuards(JwtAuthenticationGuard)
+
+// Thêm PermissionsGuard nếu cần phân quyền.
+Tuỳ phân quyền sẽ sử dụng các PermissionName khác nhau.
+@UseGuards(JwtAuthenticationGuard, PermissionsGuard)'
+
+//Example permission name "permission"
+@Permissions(PermissionName.PERMISSION)
+```
+
+### 📝 2. Swagger Documentation
+
+```typescript
+// Luôn có @ApiOperation và @ApiResponse
+@ApiOperation({ summary: 'Mô tả ngắn gọn API' })
+@ApiResponse({
+  status: 200,
+  description: 'Mô tả response thành công',
+  schema: { /* Chi tiết schema */ }
+})
+@ApiResponse({
+  status: 401,
+  description: 'Unauthorized', // Cho API có JWT
+})
+```
+
+### 🎯 3. Response Format Chuẩn
+
+```typescript
+// Return type luôn là BaseResponse
+async methodName(): Promise<BaseResponse> { }
+```
+
+### 🗓️ 4. Xử Lý Date/Time
+
+```typescript
+// Request Body: Luôn nhận string ISO 8601
+@IsDateString()
+@IsOptional()
+dateOfBirth?: string;
+
+// Chuyển đổi trong Controller trước khi gọi Service
+const updateData: Partial<User> = {
+  ...body,
+  dateOfBirth: body.dateOfBirth ? new Date(body.dateOfBirth) : undefined,
+};
+
+// Response: Luôn format thành string
+dateOfBirth: formatDateOnly(user.dateOfBirth),        // YYYY-MM-DD
+lastLoginAt: formatDateToISO(user.lastLoginAt),       // ISO DateTime
+```
+
+### ⚠️ 5. Error Handling
+
+```typescript
+// Luôn throw HttpException thay vì return error object
+throw new HttpException('Thông báo lỗi', HttpStatus.BAD_REQUEST);
+
+// Catch và re-throw HttpException trong controller
+try {
+  // logic
+} catch (error) {
+  if (error instanceof HttpException) {
+    throw error;
+  }
+  throw new HttpException('Lỗi server', HttpStatus.INTERNAL_SERVER_ERROR);
+}
+```
+
+### ✅ 6. Validation
+
+```typescript
+// Luôn sử dụng class-validator cho DTO
+@IsString()
+@IsNotEmpty()
+username: string;
+
+@IsEmail()
+@IsOptional()
+email?: string;
+
+@IsDateString()
+@IsOptional()
+dateOfBirth?: string;
+```
+
+### 🏗️ 7. HTTP Status Codes
+
+```typescript
+// Đảm bảo HTTP status code khớp với response statusCode
+@HttpCode(200)  // GET, PUT thành công
+@HttpCode(201)  // POST tạo mới thành công
+@HttpCode(204)  // DELETE thành công (no content)
+```
+
+---
+
+## 🛠️ HÀM CHUNG CHO CÁC API
+
+### 📅 Date Utilities (`src/utils/date-formatter.ts`)
+
+```typescript
+// Format date an toàn từ MySQL
+formatDateToISO(date: Date | string | null | undefined): string | null
+formatDateOnly(date: Date | string | null | undefined): string | null
+
+// Sử dụng:
+dateOfBirth: formatDateOnly(user.dateOfBirth),
+lastLoginAt: formatDateToISO(user.lastLoginAt),
+```
+
+### 🔄 Date Transformer (`src/utils/date-transformer.ts`)
+
+```typescript
+// Đảm bảo MySQL date/datetime luôn thành Date object
+export const DateTransformer: ValueTransformer
+
+// Áp dụng trong Entity:
+@Column({
+  type: 'date',
+  transformer: DateTransformer,
+})
+public dateOfBirth?: Date;
+```
+
+### 📤 Response Helper (`src/types/http-response.ts`)
+
+```typescript
+// Response chuẩn cho tất cả API
+HttpResponse.success(data, message);
+HttpResponse.created(data, message);
+HttpResponse.error(message, statusCode);
+
+// Base response interface
+interface BaseResponse<T = any> {
+  statusCode: number;
+  message: string;
+  data?: T;
+}
+```
+
+### 🔐 JWT Utilities
+
+```typescript
+// Guard cho authentication
+JwtAuthenticationGuard
+
+// Guard cho authorization
+PermissionsGuard
+
+// Decorator cho permissions
+@Permissions(PermissionName.PERMISSION)
+
+// Interface cho request với user
+RequestWithUser
+```
+
+---
+
+## 📁 STRUCTURE CHUẨN CHO MỘT API MODULE
+
+```
+src/modules/[module-name]/
+├── dto/
+│   ├── create-[entity].dto.ts
+│   ├── update-[entity].dto.ts
+│   └── [specific-action].dto.ts
+├── entities/
+│   ├── [entity].entity.ts
+│   └── [related-entities].entity.ts
+├── types/
+│   └── [custom-types].ts
+├── [module].controller.ts
+├── [module].service.ts
+└── [module].module.ts
+```
+
+---
+
+## 🎯 CHECKLIST CHO MỖI API
+
+- [ ] ✅ **Swagger**: `@ApiOperation`, `@ApiResponse`, `@ApiBearerAuth`
+- [ ] 🔐 **Auth**: `@UseGuards(JwtAuthenticationGuard)` nếu cần
+- [ ] 🎫 **Permission**: `@Permissions()` nếu cần phân quyền
+- [ ] 📝 **DTO**: Validation với `class-validator`
+- [ ] 📝 **Param**: Validate param của API
+- [ ] 📝 **Body**: Validate body của API
+- [ ] 🗓️ **Date**: Sử dụng `formatDateToISO()`, `formatDateOnly()`
+- [ ] 📤 **Response**: Return `BaseResponse` với `HttpResponse` helper
+- [ ] ⚠️ **Error**: Throw `HttpException` với status code đúng
+- [ ] 🔢 **HTTP Code**: `@HttpCode()` khớp với response statusCode
+- [ ] 📊 **Logging**: Log error với `this.logger.error()`
+
+---
+
+## 🌟 BEST PRACTICES
+
+1. **Consistency**: Tất cả API có cùng format response
+2. **Type Safety**: Sử dụng TypeScript interfaces và DTOs
+3. **Validation**: Validate input ở Controller level
+4. **Error Handling**: Centralized error handling với HttpException
+5. **Date Handling**: Consistent ISO format cho client-server communication
+6. **Documentation**: Complete Swagger documentation cho mọi API
+7. **Security**: JWT protection và permission-based access control
+
+---
+
+## 📖 VÍ DỤ TEMPLATE API HOÀN CHỈNH
+
+### Controller Example
+
+```typescript
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Put,
+  UseGuards,
+  Req,
+  Param,
+  HttpCode,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
+import { HttpResponse, BaseResponse } from '../../types/http-response';
+import { formatDateToISO, formatDateOnly } from '../../utils/date-formatter';
+import JwtAuthenticationGuard from '../auth/jwt-authentication.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { Permissions } from '../auth/decorators/permissions.decorator';
+import RequestWithUser from '../auth/intefaces/requestWithUser.interface';
+
+@ApiTags('Example')
+@Controller('example')
+export class ExampleController {
+  constructor(private readonly exampleService: ExampleService) {}
+
+  @ApiOperation({ summary: 'Tạo entity mới' })
+  @ApiResponse({
+    status: 201,
+    description: 'Tạo thành công',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthenticationGuard, PermissionsGuard)
+  @Permissions(PermissionName.PERMISSION)
+  @Post('create')
+  @HttpCode(201)
+  async create(
+    @Body() createDto: CreateExampleDto,
+    @Req() request: RequestWithUser,
+  ): Promise<BaseResponse> {
+    try {
+      // Convert date string to Date object
+      const entityData = {
+        ...createDto,
+        dateField: createDto.dateField
+          ? new Date(createDto.dateField)
+          : undefined,
+      };
+
+      const result = await this.exampleService.create(
+        entityData,
+        request.user.id,
+      );
+
+      return HttpResponse.created(result, 'Tạo thành công');
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException('Tạo thất bại', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @ApiOperation({ summary: 'Lấy thông tin entity' })
+  @ApiResponse({
+    status: 200,
+    description: 'Lấy thông tin thành công',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthenticationGuard)
+  @Get(':id')
+  async getById(@Param('id') id: string): Promise<BaseResponse> {
+    try {
+      const entity = await this.exampleService.findById(id);
+
+      // Format dates for response
+      const formattedEntity = {
+        ...entity,
+        dateField: formatDateOnly(entity.dateField),
+        createdAt: formatDateToISO(entity.createdAt),
+        updatedAt: formatDateToISO(entity.updatedAt),
+      };
+
+      return HttpResponse.success(formattedEntity, 'Lấy thông tin thành công');
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Lấy thông tin thất bại',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+}
+```
+
+### DTO Example
+
+```typescript
+import { ApiProperty } from '@nestjs/swagger';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsDateString,
+} from 'class-validator';
+
+export class CreateExampleDto {
+  @ApiProperty({
+    description: 'Tên',
+    example: 'Tên ví dụ',
+  })
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @ApiProperty({
+    description: 'Ngày',
+    example: '2023-12-25',
+    required: false,
+  })
+  @IsDateString()
+  @IsOptional()
+  dateField?: string;
+}
+```
+
+### Entity Example
+
+```typescript
+import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
+import { DateTransformer } from '../../utils/date-transformer';
+
+@Entity('examples')
+export class Example {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ length: 255 })
+  name: string;
+
+  @Column({
+    type: 'date',
+    nullable: true,
+    transformer: DateTransformer,
+  })
+  dateField?: Date;
+
+  @CreateDateColumn({
+    name: 'created_at',
+    type: 'datetime',
+  })
+  createdAt: Date;
+
+  @UpdateDateColumn({
+    name: 'updated_at',
+    type: 'datetime',
+  })
+  updatedAt: Date;
+}
+```
+
+---
+
+## 🚀 PERFORMANCE TIPS
+
+1. **Database Queries**: Sử dụng `select` để chỉ lấy fields cần thiết
+2. **Pagination**: Luôn implement pagination cho list APIs
+3. **Caching**: Cache data không thay đổi thường xuyên
+4. **Async/Await**: Sử dụng async/await thay vì Promises
+5. **Validation**: Validate input sớm để tránh xử lý không cần thiết
+
+---
+
+## 🔒 SECURITY CHECKLIST
+
+- [ ] **JWT Authentication**: Protect sensitive endpoints
+- [ ] **Permission-based Authorization**: Check user permissions
+- [ ] **Input Validation**: Validate all input data
+- [ ] **SQL Injection**: Sử dụng TypeORM để tránh SQL injection
+- [ ] **HTTPS**: Luôn sử dụng HTTPS trong production
+
+Những quy tắc này đảm bảo API có tính nhất quán, bảo mật và dễ maintain!

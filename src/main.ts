@@ -1,8 +1,80 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './modules/app/app.module';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe, INestApplication } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { HttpExceptionFilter } from './core/filters/http-exception.filter';
+import Redis from 'ioredis';
+
+/**
+ * Test Redis connection khi start server
+ */
+async function testRedisConnection(app: INestApplication): Promise<void> {
+  const logger = new Logger('Redis');
+
+  try {
+    // Lấy Redis instance từ app context
+    const redis = app.get('default_IORedisModuleConnectionToken') as Redis;
+
+    // Test basic Redis operations
+    logger.log('🔄 Testing Redis connection...');
+
+    const testKey = `startup_test_${Date.now()}`;
+    const testValue = 'connection_test';
+
+    // Set và get test data
+    await redis.set(testKey, testValue, 'EX', 10); // 10 seconds TTL
+    const retrievedValue = await redis.get(testKey);
+
+    if (retrievedValue === testValue) {
+      logger.log('✅ Redis connection successful!');
+      logger.log(`📍 Redis server info: ${await redis.info('server')}`);
+
+      // Cleanup test key
+      await redis.del(testKey);
+    } else {
+      throw new Error('Redis test operation failed');
+    }
+
+    // Test Redis ping
+    const pong = await redis.ping();
+    logger.log(`🏓 Redis ping: ${pong}`);
+  } catch (error) {
+    logger.error('❌ Redis connection failed:', error.message);
+    logger.warn('⚠️  Application will continue without Redis cache');
+    // Không throw error để app vẫn có thể start mà không có Redis
+  }
+}
+
+/**
+ * Setup graceful shutdown cho Redis
+ */
+function setupGracefulShutdown(app: INestApplication): void {
+  const logger = new Logger('Shutdown');
+
+  const gracefulShutdown = async (signal: string) => {
+    logger.log(`🛑 Received ${signal}, starting graceful shutdown...`);
+
+    try {
+      // Đóng Redis connection
+      const redis = app.get('default_IORedisModuleConnectionToken') as Redis;
+      if (redis) {
+        await redis.quit();
+        logger.log('✅ Redis connection closed');
+      }
+    } catch (error) {
+      logger.warn('⚠️  Error closing Redis connection:', error.message);
+    }
+
+    // Đóng app
+    await app.close();
+    logger.log('✅ Application shutdown complete');
+    process.exit(0);
+  };
+
+  // Listen for termination signals
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+}
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -45,6 +117,13 @@ async function bootstrap() {
   });
 
   const port = process.env.PORT || 3000;
+
+  // Test Redis connection sau khi app được khởi tạo
+  await testRedisConnection(app);
+
+  // Setup graceful shutdown
+  setupGracefulShutdown(app);
+
   const server = await app.listen(port, () => {
     Logger.log('Listening at http://localhost:' + port + '/' + globalPrefix);
     Logger.log(
@@ -59,4 +138,9 @@ async function bootstrap() {
   Logger.log(`Application is running on: ${await app.getUrl()}`);
 }
 
-bootstrap();
+// Start application với error handling
+bootstrap().catch((error) => {
+  const logger = new Logger('Bootstrap');
+  logger.error('❌ Failed to start application:', error);
+  process.exit(1);
+});

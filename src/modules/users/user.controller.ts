@@ -10,6 +10,7 @@ import {
   Query,
   HttpException,
   HttpStatus,
+  HttpCode,
   Logger,
 } from '@nestjs/common';
 import { UsersService } from './user.service';
@@ -20,10 +21,13 @@ import { UpdateInfoBody } from './types/update-info-body';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdatePermissionsDto } from './dto/update-permissions.dto';
 import { UpdateCustomerTypesDto } from './dto/update-customer-types.dto';
+import { UpdateUserInfoDto } from './dto/update-user-info.dto';
+import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 import { User } from './entities/users.entity';
 import { PermissionName } from './entities/permission.entity';
 import { HttpResponse, BaseResponse } from '../../types/http-response';
 import RequestWithUser from '../auth/intefaces/requestWithUser.interface';
+import { formatDateToISO, formatDateOnly } from '../../utils/date-formatter';
 import {
   ApiTags,
   ApiOperation,
@@ -173,13 +177,13 @@ export class UserController {
         email: user.email,
         phone: user.phone,
         address: user.address,
-        dateOfBirth: user.dateOfBirth,
+        dateOfBirth: formatDateToISO(user.dateOfBirth),
         gender: user.gender,
         isActive: user.isActive,
         requireChangePassword: user.requireChangePassword,
-        lastLoginAt: user.lastLoginAt,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
+        lastLoginAt: formatDateToISO(user.lastLoginAt),
+        createdAt: formatDateToISO(user.createdAt),
+        updatedAt: formatDateToISO(user.updatedAt),
         permissions:
           user.userPermissions?.map((up) => up.permission.name) || [],
         customerTypes:
@@ -216,6 +220,10 @@ export class UserController {
       },
     },
   })
+  @ApiResponse({
+    status: 404,
+    description: 'User không tồn tại',
+  })
   @ApiBearerAuth()
   @UseGuards(JwtAuthenticationGuard, PermissionsGuard)
   @Permissions(PermissionName.PERMISSION)
@@ -226,6 +234,12 @@ export class UserController {
     @Req() request: RequestWithUser,
   ): Promise<BaseResponse> {
     try {
+      // Validate user exists before updating permissions
+      const userExists = await this.usersService.userExists(userId);
+      if (!userExists) {
+        throw new HttpException('User không tồn tại', HttpStatus.NOT_FOUND);
+      }
+
       await this.usersService.updateUserPermissions(
         userId,
         updatePermissionsData.permissions,
@@ -261,6 +275,10 @@ export class UserController {
       },
     },
   })
+  @ApiResponse({
+    status: 404,
+    description: 'User không tồn tại',
+  })
   @ApiBearerAuth()
   @UseGuards(JwtAuthenticationGuard, PermissionsGuard)
   @Permissions(PermissionName.PERMISSION)
@@ -271,6 +289,12 @@ export class UserController {
     @Req() request: RequestWithUser,
   ): Promise<BaseResponse> {
     try {
+      // Validate user exists before updating customer types
+      const userExists = await this.usersService.userExists(userId);
+      if (!userExists) {
+        throw new HttpException('User không tồn tại', HttpStatus.NOT_FOUND);
+      }
+
       await this.usersService.updateUserCustomerTypes(
         userId,
         updateCustomerTypesData.customerTypes,
@@ -293,30 +317,332 @@ export class UserController {
     }
   }
 
+  @ApiOperation({ summary: 'Lấy thông tin user hiện tại' })
+  @ApiResponse({
+    status: 200,
+    description: 'Lấy thông tin user thành công',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 200 },
+        message: { type: 'string', example: 'Lấy thông tin user thành công' },
+        data: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'uuid' },
+            username: { type: 'string', example: 'admin' },
+            email: { type: 'string', example: 'admin@example.com' },
+            fullName: { type: 'string', example: 'Nguyễn Văn A' },
+            phone: { type: 'string', example: '0123456789' },
+            address: { type: 'string', example: 'Hà Nội, Việt Nam' },
+            dateOfBirth: { type: 'string', example: '1990-01-01' },
+            gender: { type: 'string', example: 'male' },
+            isActive: { type: 'boolean', example: true },
+            requireChangePassword: { type: 'boolean', example: false },
+            lastLoginAt: { type: 'string', format: 'date-time' },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  @ApiBearerAuth()
   @UseGuards(JwtAuthenticationGuard)
   @Get('get-info')
-  public async getInfo(@Req() request: RequestWithUser): Promise<User> {
+  public async getInfo(@Req() request: RequestWithUser): Promise<BaseResponse> {
     console.log('Receive request get-info with payload: ', request.user);
     const user = await this.usersService.getById(request.user.id);
-    user.passwordHash = undefined;
-    return user;
+
+    // Format user data with proper date serialization
+    const formattedUser = {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      fullName: user.fullName,
+      phone: user.phone,
+      address: user.address,
+      dateOfBirth: formatDateToISO(user.dateOfBirth),
+      gender: user.gender,
+      isActive: user.isActive,
+      requireChangePassword: user.requireChangePassword,
+      lastLoginAt: formatDateToISO(user.lastLoginAt),
+      createdAt: formatDateToISO(user.createdAt),
+      updatedAt: formatDateToISO(user.updatedAt),
+    };
+
+    return HttpResponse.success(formattedUser, 'Lấy thông tin user thành công');
   }
 
+  @ApiOperation({ summary: 'Cập nhật thông tin user hiện tại' })
+  @ApiResponse({
+    status: 200,
+    description: 'Cập nhật thông tin thành công',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 200 },
+        message: { type: 'string', example: 'Cập nhật thông tin thành công' },
+        data: { type: 'object', nullable: true },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  @ApiBearerAuth()
   @UseGuards(JwtAuthenticationGuard)
   @Post('update-info')
   public async updateInfo(
     @Req() request: RequestWithUser,
-    @Body() body: UpdateInfoBody,
+    @Body() body: UpdateUserInfoDto,
   ): Promise<BaseResponse> {
     console.log('Receive request update-info with payload: ', request.user);
+
+    // Convert DTO to User entity format
+    const updateData: Partial<User> = {
+      ...body,
+      dateOfBirth: body.dateOfBirth ? new Date(body.dateOfBirth) : undefined,
+    };
+
     const success = await this.usersService.updateUserInfo(
       request.user.id,
-      body,
+      updateData,
     );
 
     return HttpResponse.success(
       undefined,
       success ? 'Cập nhật thông tin thành công' : 'Cập nhật thông tin thất bại',
     );
+  }
+
+  @ApiOperation({ summary: 'Lấy thông tin profile của user bất kỳ' })
+  @ApiParam({ name: 'userId', type: 'string', description: 'ID của user' })
+  @ApiResponse({
+    status: 200,
+    description: 'Lấy thông tin profile thành công',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 200 },
+        message: {
+          type: 'string',
+          example: 'Lấy thông tin profile thành công',
+        },
+        data: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'uuid' },
+            username: { type: 'string', example: 'admin' },
+            email: { type: 'string', example: 'admin@example.com' },
+            fullName: { type: 'string', example: 'Nguyễn Văn A' },
+            phone: { type: 'string', example: '0123456789' },
+            address: { type: 'string', example: 'Hà Nội, Việt Nam' },
+            dateOfBirth: { type: 'string', example: '1990-01-01' },
+            gender: { type: 'string', example: 'male' },
+            isActive: { type: 'boolean', example: true },
+            requireChangePassword: { type: 'boolean', example: false },
+            lastLoginAt: { type: 'string', format: 'date-time' },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'User không tồn tại',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthenticationGuard, PermissionsGuard)
+  @Permissions(PermissionName.PERMISSION)
+  @Get(':userId/profile')
+  public async getUserProfile(
+    @Param('userId') userId: string,
+  ): Promise<BaseResponse> {
+    try {
+      // Validate user exists
+      const userExists = await this.usersService.userExists(userId);
+      if (!userExists) {
+        throw new HttpException('User không tồn tại', HttpStatus.NOT_FOUND);
+      }
+
+      const user = await this.usersService.getById(userId);
+
+      // Format user data with proper date serialization
+      const formattedUser = {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        fullName: user.fullName,
+        phone: user.phone,
+        address: user.address,
+        dateOfBirth: formatDateToISO(user.dateOfBirth),
+        gender: user.gender,
+        isActive: user.isActive,
+        requireChangePassword: user.requireChangePassword,
+        lastLoginAt: formatDateToISO(user.lastLoginAt),
+        createdAt: formatDateToISO(user.createdAt),
+        updatedAt: formatDateToISO(user.updatedAt),
+      };
+
+      return HttpResponse.success(
+        formattedUser,
+        'Lấy thông tin profile thành công',
+      );
+    } catch (error) {
+      this.logger.error('Get user profile error:', error);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Lấy thông tin profile thất bại',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @ApiOperation({ summary: 'Cập nhật profile của user bất kỳ' })
+  @ApiParam({ name: 'userId', type: 'string', description: 'ID của user' })
+  @ApiResponse({
+    status: 200,
+    description: 'Cập nhật profile thành công',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 200 },
+        message: { type: 'string', example: 'Cập nhật profile thành công' },
+        data: { type: 'object', nullable: true },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'User không tồn tại',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthenticationGuard, PermissionsGuard)
+  @Permissions(PermissionName.PERMISSION)
+  @Put(':userId/profile')
+  public async updateUserProfile(
+    @Param('userId') userId: string,
+    @Body() body: UpdateUserInfoDto,
+    @Req() request: RequestWithUser,
+  ): Promise<BaseResponse> {
+    try {
+      // Validate user exists
+      const userExists = await this.usersService.userExists(userId);
+      if (!userExists) {
+        throw new HttpException('User không tồn tại', HttpStatus.NOT_FOUND);
+      }
+
+      // Convert DTO to User entity format
+      const updateData: Partial<User> = {
+        ...body,
+        dateOfBirth: body.dateOfBirth ? new Date(body.dateOfBirth) : undefined,
+        updatedBy: request.user.id,
+      };
+
+      const success = await this.usersService.updateUserInfo(
+        userId,
+        updateData,
+      );
+
+      return HttpResponse.success(
+        undefined,
+        success ? 'Cập nhật profile thành công' : 'Cập nhật profile thất bại',
+      );
+    } catch (error) {
+      this.logger.error('Update user profile error:', error);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Cập nhật profile thất bại',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @ApiOperation({ summary: 'Cập nhật trạng thái active/deactive của user' })
+  @ApiParam({ name: 'userId', type: 'string', description: 'ID của user' })
+  @ApiResponse({
+    status: 200,
+    description: 'Cập nhật trạng thái thành công',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 200 },
+        message: {
+          type: 'string',
+          example: 'Cập nhật trạng thái user thành công',
+        },
+        data: { type: 'object', nullable: true },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'User không tồn tại',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthenticationGuard, PermissionsGuard)
+  @Permissions(PermissionName.PERMISSION)
+  @Put(':userId/status')
+  @HttpCode(200)
+  public async updateUserStatus(
+    @Param('userId') userId: string,
+    @Body() updateStatusData: UpdateUserStatusDto,
+    @Req() request: RequestWithUser,
+  ): Promise<BaseResponse> {
+    try {
+      // Validate user exists
+      const userExists = await this.usersService.userExists(userId);
+      if (!userExists) {
+        throw new HttpException('User không tồn tại', HttpStatus.NOT_FOUND);
+      }
+
+      const success = await this.usersService.updateUserStatus(
+        userId,
+        updateStatusData.isActive,
+        request.user.id,
+      );
+
+      const message = updateStatusData.isActive
+        ? 'Kích hoạt user thành công'
+        : 'Vô hiệu hóa user thành công';
+
+      return HttpResponse.success(
+        undefined,
+        success ? message : 'Cập nhật trạng thái user thất bại',
+      );
+    } catch (error) {
+      this.logger.error('Update user status error:', error);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Cập nhật trạng thái user thất bại',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 }

@@ -91,6 +91,22 @@ export class UsersService {
       },
     });
     if (user) {
+      // Debug logging to check data types
+      this.logger.debug(
+        'User dateOfBirth type:',
+        typeof user.dateOfBirth,
+        user.dateOfBirth,
+      );
+      this.logger.debug(
+        'User lastLoginAt type:',
+        typeof user.lastLoginAt,
+        user.lastLoginAt,
+      );
+      this.logger.debug(
+        'User createdAt type:',
+        typeof user.createdAt,
+        user.createdAt,
+      );
       return user;
     }
     throw new HttpException(
@@ -99,7 +115,14 @@ export class UsersService {
     );
   }
 
-  async updateUserInfo(id: string, body: UpdateInfoBody): Promise<boolean> {
+  async userExists(id: string): Promise<boolean> {
+    const count = await this.usersRepository.count({
+      where: { id },
+    });
+    return count > 0;
+  }
+
+  async updateUserInfo(id: string, body: Partial<User>): Promise<boolean> {
     try {
       const updateResult = await this.usersRepository.update(id, body);
       if (updateResult.affected > 0) {
@@ -399,6 +422,35 @@ export class UsersService {
         assignedBy: userId, // Self-assigned for admin
       });
       await this.userCustomerTypeRepository.save(userCustomerType);
+    }
+  }
+
+  async updateUserStatus(
+    userId: string,
+    isActive: boolean,
+    updatedBy: string,
+  ): Promise<boolean> {
+    try {
+      const updateResult = await this.usersRepository.update(userId, {
+        isActive,
+        updatedBy,
+      });
+
+      if (updateResult.affected > 0) {
+        this.logger.log(
+          `User ${userId} status updated to ${
+            isActive ? 'active' : 'inactive'
+          } by ${updatedBy}`,
+        );
+        return true;
+      }
+      return false;
+    } catch (error) {
+      this.logger.error('Error updating user status:', safeStringify(error));
+      throw new HttpException(
+        'Cập nhật trạng thái user thất bại',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }

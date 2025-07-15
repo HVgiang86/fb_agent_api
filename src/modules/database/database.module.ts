@@ -8,6 +8,7 @@ import { CustomerType } from '../users/entities/customer-type.entity';
 import { UserCustomerType } from '../users/entities/user-customer-type.entity';
 import { UserSession } from '../users/entities/user-session.entity';
 import { PasswordResetToken } from '../users/entities/password-reset-token.entity';
+import { SystemConfig } from '../system-config/entities/system-config.entity';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -42,6 +43,7 @@ import * as path from 'path';
             UserCustomerType,
             UserSession,
             PasswordResetToken,
+            SystemConfig,
           ],
           synchronize: true,
           logging: configService.get('QUERY_LOG_ENABLE')

@@ -12,7 +12,12 @@ import { LoginDto } from './dto/login.dto';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import JwtAuthenticationGuard from './jwt-authentication.guard';
-import { ApiOperation, ApiTags, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiTags,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { HttpResponse, BaseResponse } from '../../types/http-response';
 
 @ApiTags('Authentication')
@@ -42,12 +47,8 @@ export class AuthenticationController {
     description: 'Invalid credentials',
   })
   async login(@Body() loginDto: LoginDto): Promise<BaseResponse<any>> {
-    try {
-      const result = await this.authenticationService.login(loginDto);
-      return HttpResponse.success(result, 'Đăng nhập thành công');
-    } catch (error) {
-      return HttpResponse.error(error.message, error.status);
-    }
+    const result = await this.authenticationService.login(loginDto);
+    return HttpResponse.success(result, 'Đăng nhập thành công');
   }
 
   @Post('create-admin')
@@ -64,19 +65,14 @@ export class AuthenticationController {
   async createAdmin(
     @Body() createAdminDto: CreateAdminDto,
   ): Promise<BaseResponse<any>> {
-    try {
-      const result = await this.authenticationService.createAdmin(
-        createAdminDto,
-      );
-      return HttpResponse.success(result, 'Tạo tài khoản admin thành công');
-    } catch (error) {
-      return HttpResponse.error(error.message, error.status);
-    }
+    const result = await this.authenticationService.createAdmin(createAdminDto);
+    return HttpResponse.success(result, 'Tạo tài khoản admin thành công');
   }
 
   @Post('change-password')
   @UseGuards(JwtAuthenticationGuard)
   @HttpCode(200)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Change password' })
   @ApiResponse({
     status: 200,
@@ -90,24 +86,25 @@ export class AuthenticationController {
     @Request() req: any,
     @Body() changePasswordDto: ChangePasswordDto,
   ): Promise<BaseResponse<null>> {
-    try {
-      await this.authenticationService.changePassword(
-        req.user.id,
-        changePasswordDto,
-      );
-      return HttpResponse.success(null, 'Đổi mật khẩu thành công');
-    } catch (error) {
-      return HttpResponse.error(error.message, error.status);
-    }
+    await this.authenticationService.changePassword(
+      req.user.id,
+      changePasswordDto,
+    );
+    return HttpResponse.success(null, 'Đổi mật khẩu thành công');
   }
 
   @Post('log-out')
   @UseGuards(JwtAuthenticationGuard)
   @HttpCode(200)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'User logout' })
   @ApiResponse({
     status: 200,
     description: 'Logout successful',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
   })
   async logOut(): Promise<BaseResponse<null>> {
     return HttpResponse.success(null, 'Đăng xuất thành công');

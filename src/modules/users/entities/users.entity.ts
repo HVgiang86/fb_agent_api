@@ -8,6 +8,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { DateTransformer } from '../../../utils/date-transformer';
 import { UserPermission } from './user-permission.entity';
 import { UserCustomerType } from './user-customer-type.entity';
 import { UserSession } from './user-session.entity';
@@ -69,6 +70,7 @@ export class User {
     name: 'date_of_birth',
     nullable: true,
     type: 'date',
+    transformer: DateTransformer,
   })
   public dateOfBirth?: Date;
 
@@ -95,6 +97,7 @@ export class User {
     name: 'last_login_at',
     nullable: true,
     type: 'datetime',
+    transformer: DateTransformer,
   })
   public lastLoginAt?: Date;
 
@@ -108,6 +111,7 @@ export class User {
     name: 'locked_until',
     nullable: true,
     type: 'datetime',
+    transformer: DateTransformer,
   })
   public lockedUntil?: Date;
 
