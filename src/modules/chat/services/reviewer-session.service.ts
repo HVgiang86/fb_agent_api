@@ -9,6 +9,7 @@ export class ReviewerSessionService {
   private readonly SESSION_KEY_PREFIX = 'reviewer_session:';
   private readonly ONLINE_REVIEWERS_KEY = 'online_reviewers';
   private readonly SESSION_TTL = 86400; // 24 hours
+  private readonly SOCKET_CACHE_KEY = 'socket_cache';
 
   constructor(@InjectRedis() private readonly redis: Redis) {}
 
@@ -382,6 +383,42 @@ export class ReviewerSessionService {
     } catch (error) {
       this.logger.error('Failed to get reviewer workload stats:', error);
       return [];
+    }
+  }
+
+  /**
+   * Cache socketId independently (for unauthenticated connections)
+   */
+  async cacheSocketId(socketId: string): Promise<void> {
+    try {
+      const key = `${this.SOCKET_CACHE_KEY}:${socketId}`;
+      await this.redis.setex(
+        key,
+        this.SESSION_TTL,
+        JSON.stringify({
+          socketId,
+          connectedAt: new Date().toISOString(),
+        }),
+      );
+
+      this.logger.log(`Cached socket ID: ${socketId}`);
+    } catch (error) {
+      this.logger.error(`Error caching socket ID ${socketId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Remove socket ID cache (for disconnected unauthenticated sockets)
+   */
+  async removeSocketIdCache(socketId: string): Promise<void> {
+    try {
+      const key = `${this.SOCKET_CACHE_KEY}:${socketId}`;
+      await this.redis.del(key);
+
+      this.logger.log(`Removed socket ID cache: ${socketId}`);
+    } catch (error) {
+      this.logger.error(`Error removing socket ID cache ${socketId}:`, error);
     }
   }
 }

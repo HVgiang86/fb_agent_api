@@ -2,6 +2,27 @@
  * SocketIO Events Interfaces cho Chat System
  */
 
+// Interface cho connection established event
+export interface ConnectionEstablishedPayload {
+  socketId: string;
+  message: string;
+  timestamp: string; // ISO string
+}
+
+// Interface cho socket connected event (after authentication)
+export interface SocketConnectedPayload {
+  success: boolean;
+  userId: string;
+  socketId: string;
+  message: string;
+  user: {
+    id: string;
+    username: string;
+    fullName: string;
+  };
+  timestamp: string; // ISO string
+}
+
 // Interface cho connection event từ frontend
 export interface ConnectSocketPayload {
   userId: string;

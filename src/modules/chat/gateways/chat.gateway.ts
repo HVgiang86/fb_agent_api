@@ -13,6 +13,8 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { ReviewerSessionService } from '../services/reviewer-session.service';
 import {
+  ConnectionEstablishedPayload,
+  SocketConnectedPayload,
   ConnectSocketPayload,
   SendMessagePayload,
   ReceiveMessagePayload,
@@ -44,68 +46,120 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {}
 
   /**
-   * Xử lý khi client kết nối
+   * Xử lý khi client kết nối - chỉ cache socketID
    */
   async handleConnection(client: Socket): Promise<void> {
     try {
-      this.logger.log(`Client attempting to connect: ${client.id}`);
+      this.logger.log(`Client connected: ${client.id}`);
 
-      // Validate JWT token từ handshake
-      const token =
-        client.handshake.auth?.token ||
-        client.handshake.headers?.authorization?.replace('Bearer ', '');
+      // Chỉ cache socketID mà không cần authentication
+      await this.reviewerSessionService.cacheSocketId(client.id);
 
-      if (!token) {
-        this.logger.warn(`No token provided by client ${client.id}`);
-        client.emit('auth_error', { error: 'No token provided' });
-        client.disconnect();
+      // Emit connection established
+      client.emit('connection_established', {
+        socketId: client.id,
+        message: 'Kết nối WebSocket thành công',
+        timestamp: new Date().toISOString(),
+      });
+
+      this.logger.log(`Socket ${client.id} cached successfully`);
+    } catch (error) {
+      this.logger.error(`Connection error for client ${client.id}:`, error);
+      client.emit('connection_error', { error: 'Connection failed' });
+      client.disconnect();
+    }
+  }
+
+  /**
+   * Xử lý event connect_socket với userId authentication
+   */
+  @SubscribeMessage('connect_socket')
+  async handleConnectSocket(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { userId: string },
+  ): Promise<void> {
+    try {
+      this.logger.log(
+        `Connect socket request from ${client.id} for user ${payload.userId}`,
+      );
+
+      // Validate payload
+      if (!payload || !payload.userId) {
+        const error: SocketErrorPayload = {
+          event: 'connect_socket',
+          error: 'userId là bắt buộc',
+          timestamp: new Date().toISOString(),
+        };
+        client.emit('error', error);
         return;
       }
 
-      const user = await this.validateToken(token);
+      const userId = payload.userId;
+
+      // TODO: Lấy thông tin user từ UserService
+      // Tạm thời mock user data
+      const user = await this.getUserInfo(userId);
       if (!user) {
-        this.logger.warn(`Invalid token from client ${client.id}`);
-        client.emit('auth_error', { error: 'Invalid token' });
-        client.disconnect();
+        const error: SocketErrorPayload = {
+          event: 'connect_socket',
+          error: 'User không tồn tại',
+          timestamp: new Date().toISOString(),
+        };
+        client.emit('error', error);
         return;
       }
 
       // Kiểm tra quyền chat
       if (!this.hasPermission(user, 'chat')) {
-        this.logger.warn(`User ${user.id} không có quyền chat`);
-        client.emit('auth_error', { error: 'Không có quyền truy cập chat' });
-        client.disconnect();
+        this.logger.warn(`User ${userId} không có quyền chat`);
+        const error: SocketErrorPayload = {
+          event: 'connect_socket',
+          error: 'Không có quyền truy cập chat',
+          timestamp: new Date().toISOString(),
+        };
+        client.emit('error', error);
         return;
       }
 
       // Lưu thông tin user vào socket
-      client.data.userId = user.id;
+      client.data.userId = userId;
       client.data.user = user;
 
-      // Lưu session vào Redis
-      await this.reviewerSessionService.saveSession(user.id, client.id);
+      // Cache mapping socketId-userId vào Redis
+      await this.reviewerSessionService.saveSession(userId, client.id);
 
       // Join user vào room riêng để nhận messages
-      await client.join(`user_${user.id}`);
+      await client.join(`user_${userId}`);
 
-      // Emit connection success
-      client.emit('connected', {
+      // Emit socket connected successfully
+      client.emit('socket_connected', {
         success: true,
-        userId: user.id,
+        userId: userId,
         socketId: client.id,
-        message: 'Kết nối thành công',
+        message: 'Authentication thành công',
+        user: {
+          id: user.id,
+          username: user.username,
+          fullName: user.fullName,
+        },
+        timestamp: new Date().toISOString(),
       });
 
       // Broadcast online reviewers update
       await this.broadcastOnlineReviewers();
 
       this.logger.log(
-        `Reviewer ${user.username} connected successfully: ${client.id}`,
+        `User ${user.username} (${userId}) authenticated successfully with socket ${client.id}`,
       );
     } catch (error) {
-      this.logger.error(`Connection error for client ${client.id}:`, error);
-      client.emit('connection_error', { error: 'Connection failed' });
-      client.disconnect();
+      this.logger.error(`Connect socket error for client ${client.id}:`, error);
+
+      const errorPayload: SocketErrorPayload = {
+        event: 'connect_socket',
+        error: error.message || 'Authentication thất bại',
+        timestamp: new Date().toISOString(),
+      };
+      client.emit('error', errorPayload);
     }
   }
 
@@ -128,10 +182,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         await this.broadcastOnlineReviewers();
 
         this.logger.log(
-          `Reviewer ${username} (${userId}) disconnected: ${client.id}`,
+          `User ${username} (${userId}) disconnected: ${client.id}`,
         );
       } else {
-        this.logger.log(`Anonymous client disconnected: ${client.id}`);
+        // Xóa socketId cache nếu chưa authentication
+        await this.reviewerSessionService.removeSocketIdCache(client.id);
+        this.logger.log(`Unauthenticated client disconnected: ${client.id}`);
       }
     } catch (error) {
       this.logger.error(`Disconnect error for client ${client.id}:`, error);
@@ -153,7 +209,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       if (!userId || !user) {
         const error: SocketErrorPayload = {
           event: 'send_message',
-          error: 'User not authenticated',
+          error: 'User chưa được authentication',
           timestamp: new Date().toISOString(),
         };
         client.emit('error', error);
@@ -440,6 +496,29 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * Private helper methods
    */
+
+  /**
+   * Lấy thông tin user (tạm thời mock data)
+   */
+  private async getUserInfo(userId: string): Promise<any> {
+    try {
+      // TODO: Integrate với UserService để lấy thông tin user thật
+      // const user = await this.userService.findById(userId);
+
+      // Mock user data cho giờ
+      const mockUser = {
+        id: userId,
+        username: `user_${userId}`,
+        fullName: `User ${userId}`,
+        permissions: ['chat'], // Mock permission
+      };
+
+      return mockUser;
+    } catch (error) {
+      this.logger.error(`Error getting user info for ${userId}:`, error);
+      return null;
+    }
+  }
 
   /**
    * Validate JWT token
