@@ -210,3 +210,87 @@ Luồng cho một tin nhắn mới đến hệ thống như sau:
    6.1. Nếu reviewer đã xem xét và reply lại: Đánh dấu "reviewer replied" và sẵn sàng gửi về facebook, đồng thời lưu trữ tin nhắn mới vào conversation
    6.2. Nếu reviewer quá lâu không phải hồi hoặc đột ngột offline hoặc offline khi chưa đánh dấu là xử lý xong case này: Gửi lại cho reviewer khác và tăng số retry.
 7. Một job sẽ gửi tin nhắn về đầu facebook và đánh dấu "manu response done", kết thúc luồng.
+
+Các job là CronJob, chạy liên tục để xử lý các tác vụ cần thiết.
+
+## Giao tiếp giữa backend và frontend để xử lý chat
+
+Chat là tác vụ realtime, do đó ta sử dụng socketIO để giao tiếp giữa backend và frontend.
+Khi user đăng nhập frontend, frontend sẽ kết nối với backend thông qua socketIO và gửi một event "connect_socket" với data là user_id để backend biết user đã đăng nhập.
+Backend sẽ lưu trữ các phiên đăng nhập của user vào redisDB. bao gồm user_id, socket_id, created_at, updated_at.
+
+Khi thực hiện phân phối tin nhắn đến reviewer, backend sẽ xem xét các reviewer đang online và có quyền "chat", đồng thời xem xét lịch sử chat và loại khách hàng phụ trách của reviewer đó. Cụ thể về cách thức phân phối sẽ được mô tả chi tiết ở phần sau.
+
+Khi phân phối một tin nhắn mới đến frontend, backend sẽ gửi một event "receive_mess" đến frontend. Data là một đối tượng message có các thuộc tính:
+
+1. Id của tin nhắn 2. ConversationId của tin nhắn 3. CustomerId của tin nhắn 4. sender_id thể hiện id của người gửi (id của customer hoặc user) 5. sender_type: bot hay user 6. content 7. created_at 8. updated_at 9. auto_response nội dung auto_response
+
+Khi reviewer trả lời tin nhắn, backend sẽ gửi một event "send_message" đến frontend. Data là một đối tượng bao gồm:
+conversation_id
+sender_id
+content
+
+### API của AI Agent
+
+AI Agent là một service riêng biệt, được deploy trên AWS ECS.
+AI Agent có 1 đầu API để backend gọi sang để lấy ra câu trả lời tự động.
+URL: http://127.137.129.161:8080/api (url nên được cấu hình trong environment variable)
+
+Method: POST
+Body:
+question: string (câu hỏi của khách hàng)
+api_key: string (api key của AI Agent), mặc định None
+model_name: string (tên model của AI Agent), mặc định là gpt-4.1, có thể được config trong system config của backend
+
+Response:
+answer: string (câu trả lời tự động)
+confidence: double (độ chính xác của câu trả lời tự động)
+clarified_query: string (câu hỏi đã được làm rõ)
+customer_type: string (loại khách hàng, tương ứng với enum CustomerType)
+key_information: string (những keyword quan trọng trong câu hỏi)
+main_topic: string (chủ đề chính trong câu hỏi)
+question: string (câu hỏi gốc)
+
+### Những việc cần làm để triển khai phần xử lý tin nhắn của hệ thống
+
+Phiên bản Scaleable:
+
+1. webhook để nhận tin nhắn từ đầu facebook
+2. kết nối redis để cache tin nhắn
+3. kết nối database để lưu trữ tin nhắn
+4. Tạo các API liên quan đến customer bao gồm: create customer, get customer, update customer
+5. Tạo các API liên quan đến tin nhắn bao gồm: get listchat (theo user id) (hay là conversations), get messages (theo conversation id)
+6. Tạo các socketIO event và phần xử lý event, caching online reviewer
+7. Job Xử lý phân phối tin nhắn đến reviewer
+8. Kết hợp để hoàn thành luồng xử lý tin nhắn
+
+Phiên bản non-scale:
+
+1. webhook để nhận tin nhắn từ đầu facebook
+2. kết nối redis để cache reviewer đang online
+3. kết nối database để lưu trữ tin nhắn
+4. Tạo các API liên quan đến customer bao gồm: create customer, get customer, update customer
+5. Tạo các API liên quan đến tin nhắn bao gồm: get listchat (theo user id) (hay là conversations), get messages (theo conversation id)
+6. Tạo các socketIO event và phần xử lý event, caching online reviewer
+
+---
+
+Từ khi có tin nhắn mới gửi đến webhook, backend sẽ lưu trữ tin nhắn vào database, Backend gọi từ webhook sang một hàm controller.
+Hàm controller này thực hiện:
+
+1. Gọi sang AI Agent để lấy câu trả lời tự động
+2. Có được Phân tích khách hàng (customer_type) và độ chính xác dự kiến (confidence), câu trả lời tự động.
+3. Kiểm tra customer tồn tại trên hệ thống hay chưa (thông qua fb_id), tạo mới nếu cần. Lưu trữ thông tin phân tích khách hàng vào DB. Gắn customer_type vào customer. Gắn customer_id vào tin nhắn. Tạo conversation với khách hàng. Một conversation sẽ gắn với một khách hàng và một reviewer (gắn với 2 người).
+4. Gọi sang hàm để Tìm kiếm reviewer phù hợp (đang online, có quyền chat, ưu tiên có lịch sử chat với customer này, ưu tiên cùng loại khách hàng)
+5. Gửi tin nhắn đến socket_id tương ứng với reviewer đó.
+6. Gửi socket_event đến reviewer đó.
+7. Xử lý sự kiện sau khi nhận socket_event từ reviewer: kiểm tra conversation_id và update message vào.
+8. Thêm message này vào redis cache để job gửi về đầu facebook_backend.
+
+### Phương pháp phân phối tin nhắn đến reviewer
+
+- Từ cache các user đang online -> lấy ra các user có quyền chat.
+  Phân phối tin nhắn đến các user đã lấy ra theo độ ưu tiên:
+
+1. Có lịch sử chat với customer này
+2. Cùng loại khách hàng

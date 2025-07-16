@@ -3,14 +3,9 @@ import {
   Permission,
   PermissionName,
 } from '../../modules/users/entities/permission.entity';
-import {
-  CustomerType,
-  CustomerTypeName,
-} from '../../modules/users/entities/customer-type.entity';
 
 export async function seedDatabase(dataSource: DataSource) {
   const permissionRepository = dataSource.getRepository(Permission);
-  const customerTypeRepository = dataSource.getRepository(CustomerType);
 
   // Seed permissions
   const permissions = [
@@ -48,41 +43,5 @@ export async function seedDatabase(dataSource: DataSource) {
     }
   }
 
-  // Seed customer types
-  const customerTypes = [
-    {
-      name: CustomerTypeName.INDIVIDUAL,
-      displayName: 'Khách hàng cá nhân',
-      description: 'Khách hàng cá nhân',
-    },
-    {
-      name: CustomerTypeName.BUSINESS,
-      displayName: 'Khách hàng doanh nghiệp',
-      description: 'Khách hàng doanh nghiệp',
-    },
-    {
-      name: CustomerTypeName.HOUSEHOLD_BUSINESS,
-      displayName: 'Khách hàng hộ kinh doanh',
-      description: 'Khách hàng hộ kinh doanh',
-    },
-    {
-      name: CustomerTypeName.PARTNER,
-      displayName: 'Khách hàng đối tác',
-      description: 'Khách hàng đối tác',
-    },
-  ];
-
-  for (const customerTypeData of customerTypes) {
-    const existingCustomerType = await customerTypeRepository.findOne({
-      where: { name: customerTypeData.name },
-    });
-
-    if (!existingCustomerType) {
-      const customerType = customerTypeRepository.create(customerTypeData);
-      await customerTypeRepository.save(customerType);
-      console.log(`Created customer type: ${customerTypeData.name}`);
-    }
-  }
-
-  console.log('Database seeding completed');
+  console.log('Database seeding completed!');
 }

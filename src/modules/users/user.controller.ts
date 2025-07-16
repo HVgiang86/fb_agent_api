@@ -17,7 +17,7 @@ import { UsersService } from './user.service';
 import JwtAuthenticationGuard from '../auth/jwt-authentication.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
-import { UpdateInfoBody } from './types/update-info-body';
+
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdatePermissionsDto } from './dto/update-permissions.dto';
 import { UpdateCustomerTypesDto } from './dto/update-customer-types.dto';
@@ -25,9 +25,10 @@ import { UpdateUserInfoDto } from './dto/update-user-info.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 import { User } from './entities/users.entity';
 import { PermissionName } from './entities/permission.entity';
+import { CustomerType } from '../chat/types/enums';
 import { HttpResponse, BaseResponse } from '../../types/http-response';
 import RequestWithUser from '../auth/intefaces/requestWithUser.interface';
-import { formatDateToISO, formatDateOnly } from '../../utils/date-formatter';
+import { formatDateToISO } from '../../utils/date-formatter';
 import {
   ApiTags,
   ApiOperation,
@@ -131,7 +132,41 @@ export class UserController {
         data: {
           type: 'object',
           properties: {
-            users: { type: 'array', items: { type: 'object' } },
+            users: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  username: { type: 'string' },
+                  fullName: { type: 'string' },
+                  email: { type: 'string' },
+                  phone: { type: 'string' },
+                  address: { type: 'string' },
+                  dateOfBirth: { type: 'string' },
+                  gender: { type: 'string' },
+                  isActive: { type: 'boolean' },
+                  requireChangePassword: { type: 'boolean' },
+                  lastLoginAt: { type: 'string' },
+                  createdAt: { type: 'string' },
+                  updatedAt: { type: 'string' },
+                  permissions: {
+                    type: 'array',
+                    items: {
+                      type: 'string',
+                      enum: Object.values(PermissionName),
+                    },
+                  },
+                  customerTypes: {
+                    type: 'array',
+                    items: {
+                      type: 'string',
+                      enum: Object.values(CustomerType),
+                    },
+                  },
+                },
+              },
+            },
             total: { type: 'number' },
             page: { type: 'number' },
             limit: { type: 'number' },
@@ -169,26 +204,35 @@ export class UserController {
       const offset = (page - 1) * limit;
       const paginatedUsers = filteredUsers.slice(offset, offset + limit);
 
-      // Format response
-      const formattedUsers = paginatedUsers.map((user) => ({
-        id: user.id,
-        username: user.username,
-        fullName: user.fullName,
-        email: user.email,
-        phone: user.phone,
-        address: user.address,
-        dateOfBirth: formatDateToISO(user.dateOfBirth),
-        gender: user.gender,
-        isActive: user.isActive,
-        requireChangePassword: user.requireChangePassword,
-        lastLoginAt: formatDateToISO(user.lastLoginAt),
-        createdAt: formatDateToISO(user.createdAt),
-        updatedAt: formatDateToISO(user.updatedAt),
-        permissions:
-          user.userPermissions?.map((up) => up.permission.name) || [],
-        customerTypes:
-          user.userCustomerTypes?.map((uct) => uct.customerType.name) || [],
-      }));
+      // Format response with permissions and customerTypes
+      const formattedUsers = await Promise.all(
+        paginatedUsers.map(async (user) => {
+          const permissions = await this.usersService.getUserPermissions(
+            user.id,
+          );
+          const customerTypes = await this.usersService.getUserCustomerTypes(
+            user.id,
+          );
+
+          return {
+            id: user.id,
+            username: user.username,
+            fullName: user.fullName,
+            email: user.email,
+            phone: user.phone,
+            address: user.address,
+            dateOfBirth: formatDateToISO(user.dateOfBirth),
+            gender: user.gender,
+            isActive: user.isActive,
+            requireChangePassword: user.requireChangePassword,
+            lastLoginAt: formatDateToISO(user.lastLoginAt),
+            createdAt: formatDateToISO(user.createdAt),
+            updatedAt: formatDateToISO(user.updatedAt),
+            permissions,
+            customerTypes,
+          };
+        }),
+      );
 
       const result = {
         users: formattedUsers,
@@ -295,6 +339,18 @@ export class UserController {
         throw new HttpException('User không tồn tại', HttpStatus.NOT_FOUND);
       }
 
+      // Validate customer types
+      const validCustomerTypes = Object.values(CustomerType);
+      for (const customerType of updateCustomerTypesData.customerTypes) {
+        if (!validCustomerTypes.includes(customerType)) {
+          throw new HttpException(
+            `Customer type không hợp lệ: ${customerType}`,
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+      }
+
+      // Update customer types for user
       await this.usersService.updateUserCustomerTypes(
         userId,
         updateCustomerTypesData.customerTypes,
@@ -342,6 +398,14 @@ export class UserController {
             lastLoginAt: { type: 'string', format: 'date-time' },
             createdAt: { type: 'string', format: 'date-time' },
             updatedAt: { type: 'string', format: 'date-time' },
+            permissions: {
+              type: 'array',
+              items: { type: 'string', enum: Object.values(PermissionName) },
+            },
+            customerTypes: {
+              type: 'array',
+              items: { type: 'string', enum: Object.values(CustomerType) },
+            },
           },
         },
       },
@@ -358,6 +422,14 @@ export class UserController {
     console.log('Receive request get-info with payload: ', request.user);
     const user = await this.usersService.getById(request.user.id);
 
+    // Get permissions and customer types
+    const permissions = await this.usersService.getUserPermissions(
+      request.user.id,
+    );
+    const customerTypes = await this.usersService.getUserCustomerTypes(
+      request.user.id,
+    );
+
     // Format user data with proper date serialization
     const formattedUser = {
       id: user.id,
@@ -373,6 +445,8 @@ export class UserController {
       lastLoginAt: formatDateToISO(user.lastLoginAt),
       createdAt: formatDateToISO(user.createdAt),
       updatedAt: formatDateToISO(user.updatedAt),
+      permissions,
+      customerTypes,
     };
 
     return HttpResponse.success(formattedUser, 'Lấy thông tin user thành công');
@@ -450,6 +524,14 @@ export class UserController {
             lastLoginAt: { type: 'string', format: 'date-time' },
             createdAt: { type: 'string', format: 'date-time' },
             updatedAt: { type: 'string', format: 'date-time' },
+            permissions: {
+              type: 'array',
+              items: { type: 'string', enum: Object.values(PermissionName) },
+            },
+            customerTypes: {
+              type: 'array',
+              items: { type: 'string', enum: Object.values(CustomerType) },
+            },
           },
         },
       },
@@ -479,6 +561,12 @@ export class UserController {
 
       const user = await this.usersService.getById(userId);
 
+      // Get permissions and customer types
+      const permissions = await this.usersService.getUserPermissions(userId);
+      const customerTypes = await this.usersService.getUserCustomerTypes(
+        userId,
+      );
+
       // Format user data with proper date serialization
       const formattedUser = {
         id: user.id,
@@ -494,6 +582,8 @@ export class UserController {
         lastLoginAt: formatDateToISO(user.lastLoginAt),
         createdAt: formatDateToISO(user.createdAt),
         updatedAt: formatDateToISO(user.updatedAt),
+        permissions,
+        customerTypes,
       };
 
       return HttpResponse.success(

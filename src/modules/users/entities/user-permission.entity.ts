@@ -20,14 +20,16 @@ export class UserPermission {
 
   @Column({
     name: 'user_id',
-    type: 'uuid',
+    type: 'varchar',
+    length: 36,
     nullable: false,
   })
   public userId: string;
 
   @Column({
     name: 'permission_id',
-    type: 'uuid',
+    type: 'varchar',
+    length: 36,
     nullable: false,
   })
   public permissionId: string;
@@ -40,7 +42,8 @@ export class UserPermission {
 
   @Column({
     name: 'granted_by',
-    type: 'uuid',
+    type: 'varchar',
+    length: 36,
     nullable: true,
   })
   public grantedBy?: string;

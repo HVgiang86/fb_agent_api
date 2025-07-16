@@ -17,7 +17,8 @@ export class PasswordResetToken {
 
   @Column({
     name: 'user_id',
-    type: 'uuid',
+    type: 'varchar',
+    length: 36,
     nullable: false,
   })
   public userId: string;

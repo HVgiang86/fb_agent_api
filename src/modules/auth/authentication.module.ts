@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthenticationService } from './authentication.service';
-import { UsersModule } from '../users/user.module';
+import { UserModule } from '../users/user.module';
 import { AuthenticationController } from './authentication.controller';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
@@ -11,7 +11,7 @@ import { UsersService } from '../users/user.service';
 
 @Module({
   imports: [
-    UsersModule,
+    UserModule,
     PassportModule,
     ConfigModule,
     JwtModule.registerAsync({

@@ -10,9 +10,9 @@ import {
 } from 'typeorm';
 import { DateTransformer } from '../../../utils/date-transformer';
 import { UserPermission } from './user-permission.entity';
-import { UserCustomerType } from './user-customer-type.entity';
 import { UserSession } from './user-session.entity';
 import { PasswordResetToken } from './password-reset-token.entity';
+import { UserCustomerType } from './user-customer-type.entity';
 
 export enum Gender {
   MALE = 'male',
@@ -130,14 +130,16 @@ export class User {
   @Column({
     name: 'created_by',
     nullable: true,
-    type: 'uuid',
+    type: 'varchar',
+    length: 36,
   })
   public createdBy?: string;
 
   @Column({
     name: 'updated_by',
     nullable: true,
-    type: 'uuid',
+    type: 'varchar',
+    length: 36,
   })
   public updatedBy?: string;
 

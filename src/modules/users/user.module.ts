@@ -1,12 +1,14 @@
 import { Module } from '@nestjs/common';
-import { UsersService } from './user.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { User } from './entities/users.entity';
+import { UserController } from './user.controller';
+import { UsersService } from './user.service';
+import User from './entities/users.entity';
 import { Permission } from './entities/permission.entity';
 import { UserPermission } from './entities/user-permission.entity';
-import { CustomerType } from './entities/customer-type.entity';
 import { UserCustomerType } from './entities/user-customer-type.entity';
-import { UserController } from './user.controller';
+import { UserSession } from './entities/user-session.entity';
+import { PasswordResetToken } from './entities/password-reset-token.entity';
+import { Customer } from './entities/customer.entity';
 
 @Module({
   imports: [
@@ -14,12 +16,14 @@ import { UserController } from './user.controller';
       User,
       Permission,
       UserPermission,
-      CustomerType,
       UserCustomerType,
+      UserSession,
+      PasswordResetToken,
+      Customer,
     ]),
   ],
-  providers: [UsersService],
   controllers: [UserController],
-  exports: [UsersService],
+  providers: [UsersService],
+  exports: [UsersService, TypeOrmModule],
 })
-export class UsersModule {}
+export class UserModule {}

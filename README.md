@@ -309,19 +309,11 @@ This project is licensed under the MIT License.
 ### Logs & Debugging
 
 ```bash
-# Enable query logging
-QUERY_LOG_ENABLE=true yarn start:dev
-
 # Debug mode
-yarn start:debug
+yarn start
 ```
 
-### Getting Help
-
-- Check `API-DOCUMENTATION.md` cho chi tiết API
-- Xem `test-api.md` cho examples
 - Check Swagger UI tại `/api/docs`
-- Review source code và comments
 
 ---
 

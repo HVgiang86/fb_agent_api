@@ -7,14 +7,16 @@ import * as bcrypt from 'bcrypt';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { PermissionName } from '../users/entities/permission.entity';
-import { CustomerTypeName } from '../users/entities/customer-type.entity';
+import { CustomerType } from '../users/../chat/types/enums';
 
 export interface LoginResponse {
   accessToken: string;
   refreshToken: string;
   userId: string;
   permissions: PermissionName[];
-  customerTypes: CustomerTypeName[];
+  // Note: customerTypes is kept for backward compatibility but will always be empty
+  // Customer types are now managed directly in the chat system's Customer entity
+  customerTypes: CustomerType[];
 }
 
 @Injectable()
@@ -112,9 +114,10 @@ export class AuthenticationService {
       expiresIn: this.configService.get('JWT_REFRESH_EXPIRATION_TIME', '7d'),
     });
 
-    // Get user permissions and customer types
+    // Get user permissions
     const permissions = await this.usersService.getUserPermissions(user.id);
-    const customerTypes = await this.usersService.getUserCustomerTypes(user.id);
+    // Note: Customer types are now managed in chat system, not related to users
+    const customerTypes: any[] = [];
 
     return {
       accessToken,
@@ -207,7 +210,7 @@ export class AuthenticationService {
       // Assign individual customer type to admin
       await this.usersService.assignCustomerTypeToUser(
         adminUser.id,
-        'individual' as CustomerTypeName,
+        'individual' as CustomerType,
       );
 
       this.logger.log(`Admin account created: ${adminData.username}`);

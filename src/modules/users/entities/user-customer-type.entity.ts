@@ -8,29 +8,31 @@ import {
   Index,
 } from 'typeorm';
 import { User } from './users.entity';
-import { CustomerType } from './customer-type.entity';
+import { CustomerType } from '../../chat/types/enums';
 
 @Entity({
   name: 'user_customer_types',
 })
-@Index(['userId', 'customerTypeId'], { unique: true })
+@Index(['userId', 'customerType'], { unique: true })
 export class UserCustomerType {
   @PrimaryGeneratedColumn('uuid')
   public id: string;
 
   @Column({
     name: 'user_id',
-    type: 'uuid',
+    type: 'varchar',
+    length: 36,
     nullable: false,
   })
   public userId: string;
 
   @Column({
-    name: 'customer_type_id',
-    type: 'uuid',
+    name: 'customer_type',
+    type: 'enum',
+    enum: CustomerType,
     nullable: false,
   })
-  public customerTypeId: string;
+  public customerType: CustomerType;
 
   @CreateDateColumn({
     name: 'assigned_at',
@@ -40,7 +42,8 @@ export class UserCustomerType {
 
   @Column({
     name: 'assigned_by',
-    type: 'uuid',
+    type: 'varchar',
+    length: 36,
     nullable: true,
   })
   public assignedBy?: string;
@@ -51,16 +54,6 @@ export class UserCustomerType {
   })
   @JoinColumn({ name: 'user_id' })
   public user: User;
-
-  @ManyToOne(
-    () => CustomerType,
-    (customerType) => customerType.userCustomerTypes,
-    {
-      onDelete: 'CASCADE',
-    },
-  )
-  @JoinColumn({ name: 'customer_type_id' })
-  public customerType: CustomerType;
 
   @ManyToOne(() => User, { nullable: true })
   @JoinColumn({ name: 'assigned_by' })

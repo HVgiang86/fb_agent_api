@@ -47,7 +47,6 @@ export enum ConfigKey {
 @Entity({
   name: 'system_configs',
 })
-@Index(['configKey'], { unique: true })
 export class SystemConfig {
   @PrimaryGeneratedColumn('uuid')
   public id: string;
@@ -112,14 +111,16 @@ export class SystemConfig {
   @Column({
     name: 'created_by',
     nullable: true,
-    type: 'uuid',
+    type: 'varchar',
+    length: 36,
   })
   public createdBy?: string;
 
   @Column({
     name: 'updated_by',
     nullable: true,
-    type: 'uuid',
+    type: 'varchar',
+    length: 36,
   })
   public updatedBy?: string;
 

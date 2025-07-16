@@ -1,15 +1,15 @@
 import { IsArray, IsEnum } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import { CustomerTypeName } from '../entities/customer-type.entity';
+import { CustomerType } from '../../chat/types/enums';
 
 export class UpdateCustomerTypesDto {
   @ApiProperty({
     description: 'Danh sách loại khách hàng phụ trách',
-    enum: CustomerTypeName,
+    enum: CustomerType,
     isArray: true,
-    example: [CustomerTypeName.INDIVIDUAL, CustomerTypeName.BUSINESS],
+    example: [CustomerType.INDIVIDUAL, CustomerType.BUSINESS],
   })
   @IsArray()
-  @IsEnum(CustomerTypeName, { each: true })
-  customerTypes: CustomerTypeName[];
+  @IsEnum(CustomerType, { each: true })
+  customerTypes: CustomerType[];
 }

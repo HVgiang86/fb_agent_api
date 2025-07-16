@@ -4,11 +4,8 @@ import { Repository } from 'typeorm';
 import { User } from './entities/users.entity';
 import { Permission, PermissionName } from './entities/permission.entity';
 import { UserPermission } from './entities/user-permission.entity';
-import {
-  CustomerType,
-  CustomerTypeName,
-} from './entities/customer-type.entity';
 import { UserCustomerType } from './entities/user-customer-type.entity';
+import { CustomerType } from '../chat/types/enums';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateInfoBody } from './types/update-info-body';
 import safeStringify from 'fast-safe-stringify';
@@ -22,11 +19,9 @@ export class UsersService {
     @InjectRepository(User)
     private usersRepository: Repository<User>,
     @InjectRepository(Permission)
-    private permissionRepository: Repository<Permission>,
+    private permissionsRepository: Repository<Permission>,
     @InjectRepository(UserPermission)
-    private userPermissionRepository: Repository<UserPermission>,
-    @InjectRepository(CustomerType)
-    private customerTypeRepository: Repository<CustomerType>,
+    private userPermissionsRepository: Repository<UserPermission>,
     @InjectRepository(UserCustomerType)
     private userCustomerTypeRepository: Repository<UserCustomerType>,
   ) {}
@@ -73,13 +68,13 @@ export class UsersService {
     await this.usersRepository.save(newUser);
 
     // Assign default individual customer type
-    const individualCustomerType = await this.customerTypeRepository.findOne({
-      where: { name: CustomerTypeName.INDIVIDUAL },
-    });
+    // const individualCustomerType = await this.customerTypeRepository.findOne({
+    //   where: { name: CustomerTypeName.INDIVIDUAL },
+    // });
 
-    if (individualCustomerType) {
-      await this.assignCustomerType(newUser.id, individualCustomerType.id);
-    }
+    // if (individualCustomerType) {
+    //   await this.assignCustomerType(newUser.id, individualCustomerType.id);
+    // }
 
     return newUser;
   }
@@ -136,7 +131,7 @@ export class UsersService {
   }
 
   async getUserPermissions(userId: string): Promise<PermissionName[]> {
-    const userPermissions = await this.userPermissionRepository.find({
+    const userPermissions = await this.userPermissionsRepository.find({
       where: { userId },
       relations: ['permission'],
     });
@@ -144,13 +139,12 @@ export class UsersService {
     return userPermissions.map((up) => up.permission.name);
   }
 
-  async getUserCustomerTypes(userId: string): Promise<CustomerTypeName[]> {
+  async getUserCustomerTypes(userId: string): Promise<CustomerType[]> {
     const userCustomerTypes = await this.userCustomerTypeRepository.find({
       where: { userId },
-      relations: ['customerType'],
     });
 
-    return userCustomerTypes.map((uct) => uct.customerType.name);
+    return userCustomerTypes.map((uct) => uct.customerType);
   }
 
   async updateUserPermissions(
@@ -159,29 +153,29 @@ export class UsersService {
     grantedBy: string,
   ): Promise<void> {
     // Remove existing permissions
-    await this.userPermissionRepository.delete({ userId });
+    await this.userPermissionsRepository.delete({ userId });
 
     // Add new permissions
     if (permissions.length > 0) {
-      const permissionEntities = await this.permissionRepository.find({
+      const permissionEntities = await this.permissionsRepository.find({
         where: permissions.map((name) => ({ name })),
       });
 
       const userPermissions = permissionEntities.map((permission) =>
-        this.userPermissionRepository.create({
+        this.userPermissionsRepository.create({
           userId,
           permissionId: permission.id,
           grantedBy,
         }),
       );
 
-      await this.userPermissionRepository.save(userPermissions);
+      await this.userPermissionsRepository.save(userPermissions);
     }
   }
 
   async updateUserCustomerTypes(
     userId: string,
-    customerTypes: CustomerTypeName[],
+    customerTypes: CustomerType[],
     assignedBy: string,
   ): Promise<void> {
     // Remove existing customer types
@@ -189,14 +183,10 @@ export class UsersService {
 
     // Add new customer types
     if (customerTypes.length > 0) {
-      const customerTypeEntities = await this.customerTypeRepository.find({
-        where: customerTypes.map((name) => ({ name })),
-      });
-
-      const userCustomerTypes = customerTypeEntities.map((customerType) =>
+      const userCustomerTypes = customerTypes.map((customerType) =>
         this.userCustomerTypeRepository.create({
           userId,
-          customerTypeId: customerType.id,
+          customerType,
           assignedBy,
         }),
       );
@@ -207,14 +197,21 @@ export class UsersService {
 
   async assignCustomerType(
     userId: string,
-    customerTypeId: string,
+    customerType: CustomerType,
   ): Promise<void> {
-    const userCustomerType = this.userCustomerTypeRepository.create({
-      userId,
-      customerTypeId,
-    });
+    const existingUserCustomerType =
+      await this.userCustomerTypeRepository.findOne({
+        where: { userId, customerType },
+      });
 
-    await this.userCustomerTypeRepository.save(userCustomerType);
+    if (!existingUserCustomerType) {
+      const userCustomerType = this.userCustomerTypeRepository.create({
+        userId,
+        customerType,
+        assignedBy: userId, // Self-assigned
+      });
+      await this.userCustomerTypeRepository.save(userCustomerType);
+    }
   }
 
   async getUsersWithPermissionsAndCustomerTypes(): Promise<User[]> {
@@ -223,7 +220,6 @@ export class UsersService {
         'userPermissions',
         'userPermissions.permission',
         'userCustomerTypes',
-        'userCustomerTypes.customerType',
       ],
     });
   }
@@ -321,108 +317,50 @@ export class UsersService {
     ];
 
     for (const permissionData of permissions) {
-      const existing = await this.permissionRepository.findOne({
+      const existing = await this.permissionsRepository.findOne({
         where: { name: permissionData.name },
       });
 
       if (!existing) {
-        const permission = this.permissionRepository.create({
+        const permission = this.permissionsRepository.create({
           name: permissionData.name,
           displayName: permissionData.displayName,
           description: permissionData.description,
         });
-        await this.permissionRepository.save(permission);
+        await this.permissionsRepository.save(permission);
       }
     }
   }
 
   async ensureCustomerTypesExist(): Promise<void> {
-    const customerTypes = [
-      {
-        name: CustomerTypeName.INDIVIDUAL,
-        displayName: 'Khách hàng cá nhân',
-        description: 'Khách hàng cá nhân',
-      },
-      {
-        name: CustomerTypeName.BUSINESS,
-        displayName: 'Khách hàng doanh nghiệp',
-        description: 'Khách hàng doanh nghiệp',
-      },
-      {
-        name: CustomerTypeName.HOUSEHOLD_BUSINESS,
-        displayName: 'Khách hàng hộ kinh doanh',
-        description: 'Khách hàng hộ kinh doanh',
-      },
-      {
-        name: CustomerTypeName.PARTNER,
-        displayName: 'Khách hàng đối tác',
-        description: 'Khách hàng đối tác',
-      },
-    ];
-
-    for (const customerTypeData of customerTypes) {
-      const existing = await this.customerTypeRepository.findOne({
-        where: { name: customerTypeData.name },
-      });
-
-      if (!existing) {
-        const customerType = this.customerTypeRepository.create({
-          name: customerTypeData.name,
-          displayName: customerTypeData.displayName,
-          description: customerTypeData.description,
-          isActive: true,
-        });
-        await this.customerTypeRepository.save(customerType);
-      }
-    }
+    // CustomerType is now an enum, no database records needed
+    // This function is kept for backward compatibility but does nothing
   }
 
   async assignAllPermissionsToUser(userId: string): Promise<void> {
-    const permissions = await this.permissionRepository.find();
+    const permissions = await this.permissionsRepository.find();
 
     for (const permission of permissions) {
-      const existing = await this.userPermissionRepository.findOne({
+      const existing = await this.userPermissionsRepository.findOne({
         where: { userId, permissionId: permission.id },
       });
 
       if (!existing) {
-        const userPermission = this.userPermissionRepository.create({
+        const userPermission = this.userPermissionsRepository.create({
           userId,
           permissionId: permission.id,
           grantedBy: userId, // Self-granted for admin
         });
-        await this.userPermissionRepository.save(userPermission);
+        await this.userPermissionsRepository.save(userPermission);
       }
     }
   }
 
   async assignCustomerTypeToUser(
     userId: string,
-    customerTypeName: CustomerTypeName,
+    customerTypeName: CustomerType,
   ): Promise<void> {
-    const customerType = await this.customerTypeRepository.findOne({
-      where: { name: customerTypeName },
-    });
-
-    if (!customerType) {
-      throw new HttpException(
-        'Customer type không tồn tại',
-        HttpStatus.NOT_FOUND,
-      );
-    }
-
-    const existing = await this.userCustomerTypeRepository.findOne({
-      where: { userId, customerTypeId: customerType.id },
-    });
-
-    if (!existing) {
-      const userCustomerType = this.userCustomerTypeRepository.create({
-        userId,
-        customerTypeId: customerType.id,
-        assignedBy: userId, // Self-assigned for admin
-      });
-      await this.userCustomerTypeRepository.save(userCustomerType);
-    }
+    await this.assignCustomerType(userId, customerTypeName);
   }
 
   async updateUserStatus(
