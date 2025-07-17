@@ -2,6 +2,44 @@
  * SocketIO Events Interfaces cho Chat System
  */
 
+// Interface cho connected event (không cần authentication)
+export interface ConnectedPayload {
+  success: boolean;
+  socketId: string;
+  userId: string;
+  user: {
+    id: string;
+    username: string;
+    fullName: string;
+  };
+  message: string;
+  timestamp: string; // ISO string
+}
+
+// Interface cho join conversation event
+export interface JoinConversationPayload {
+  conversationId: string;
+}
+
+// Interface cho joined conversation response
+export interface JoinedConversationPayload {
+  success: boolean;
+  conversationId: string;
+  message: string;
+}
+
+// Interface cho leave conversation event
+export interface LeaveConversationPayload {
+  conversationId: string;
+}
+
+// Interface cho left conversation response
+export interface LeftConversationPayload {
+  success: boolean;
+  conversationId: string;
+  message: string;
+}
+
 // Interface cho connection established event
 export interface ConnectionEstablishedPayload {
   socketId: string;

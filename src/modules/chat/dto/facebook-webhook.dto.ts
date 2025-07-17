@@ -48,29 +48,12 @@ export class FacebookCustomerInfoDto {
 
 export class FacebookWebhookPayloadDto {
   @ApiProperty({
-    description: 'ID tin nhắn từ Facebook',
-    example: 'fb_msg_123456789',
-  })
-  @IsString()
-  @IsNotEmpty()
-  messageId: string;
-
-  @ApiProperty({
-    description: 'ID conversation (nếu có)',
-    example: 'conv_123456789',
-    required: false,
-  })
-  @IsString()
-  @IsOptional()
-  conversationId?: string;
-
-  @ApiProperty({
-    description: 'ID khách hàng trên fb',
+    description: 'ID user nhắn từ Facebook (FB ID)',
     example: 'fb_123456789',
   })
   @IsString()
   @IsNotEmpty()
-  customerId: string;
+  messageId: string;
 
   @ApiProperty({
     description: 'Nội dung tin nhắn',
@@ -95,17 +78,4 @@ export class FacebookWebhookPayloadDto {
   @Type(() => FacebookCustomerInfoDto)
   @IsObject()
   customerInfo: FacebookCustomerInfoDto;
-
-  @ApiProperty({
-    description: 'Metadata bổ sung',
-    example: {
-      messageType: 'text',
-      platform: 'facebook',
-      source: 'page_inbox',
-    },
-    required: false,
-  })
-  @IsObject()
-  @IsOptional()
-  metadata?: any;
 }

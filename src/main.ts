@@ -3,6 +3,7 @@ import { AppModule } from './modules/app/app.module';
 import { Logger, ValidationPipe, INestApplication } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { HttpExceptionFilter } from './core/filters/http-exception.filter';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import Redis from 'ioredis';
 
 /**
@@ -78,7 +79,7 @@ function setupGracefulShutdown(app: INestApplication): void {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn', 'log', 'debug'],
+    logger: ['error', 'warn', 'log', 'debug', 'verbose'],
   });
 
   // Global prefix
@@ -116,15 +117,26 @@ async function bootstrap() {
     credentials: true,
   });
 
+  app.useWebSocketAdapter(new IoAdapter(app));
+
   const port = process.env.PORT || 3000;
 
-  // Test Redis connection sau khi app được khởi tạo
   await testRedisConnection(app);
 
   // Setup graceful shutdown
   setupGracefulShutdown(app);
 
   const server = await app.listen(port, () => {
+    console.log('================ SERVER STARTED ================');
+    console.log(
+      `🚀 Server is running on http://localhost:${port}/${globalPrefix}`,
+    );
+    console.log(
+      `📚 Swagger docs: http://localhost:${port}/${globalPrefix}/docs`,
+    );
+    console.log(`🔧 Logger levels enabled: error, warn, log, debug, verbose`);
+    console.log('===============================================');
+
     Logger.log('Listening at http://localhost:' + port + '/' + globalPrefix);
     Logger.log(
       'Swagger docs available at http://localhost:' +
@@ -133,9 +145,9 @@ async function bootstrap() {
         globalPrefix +
         '/docs',
     );
+    Logger.debug('🔧 Debug logging is enabled');
+    Logger.verbose('🔧 Verbose logging is enabled');
   });
-
-  Logger.log(`Application is running on: ${await app.getUrl()}`);
 }
 
 // Start application với error handling

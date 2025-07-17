@@ -10,14 +10,82 @@ export class ReviewerSessionService {
   private readonly ONLINE_REVIEWERS_KEY = 'online_reviewers';
   private readonly SESSION_TTL = 86400; // 24 hours
   private readonly SOCKET_CACHE_KEY = 'socket_cache';
+  private readonly MAX_RETRY_ATTEMPTS = 3;
+  private readonly RETRY_DELAY_MS = 1000; // 1 second
 
-  constructor(@InjectRedis() private readonly redis: Redis) {}
+  constructor(@InjectRedis() private readonly redis: Redis) {
+    this.logger.log('🔧 ReviewerSessionService initialized');
+    this.testRedisConnection();
+  }
 
   /**
-   * Lưu session của reviewer
+   * Test Redis connection khi service khởi tạo
+   */
+  private async testRedisConnection(): Promise<void> {
+    try {
+      const pong = await this.redis.ping();
+      this.logger.log(`✅ Redis connection test successful: ${pong}`);
+
+      // Test basic operations
+      const testKey = `test_connection_${Date.now()}`;
+      await this.redis.set(testKey, 'test_value', 'EX', 10);
+      const value = await this.redis.get(testKey);
+      await this.redis.del(testKey);
+
+      if (value === 'test_value') {
+        this.logger.log('✅ Redis read/write operations working correctly');
+      } else {
+        throw new Error('Redis read/write test failed');
+      }
+    } catch (error) {
+      this.logger.error('❌ Redis connection test failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Retry wrapper cho Redis operations
+   */
+  private async retryOperation<T>(
+    operation: () => Promise<T>,
+    operationName: string,
+    retries = this.MAX_RETRY_ATTEMPTS,
+  ): Promise<T> {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const result = await operation();
+        if (attempt > 1) {
+          this.logger.log(
+            `✅ ${operationName} succeeded on attempt ${attempt}`,
+          );
+        }
+        return result;
+      } catch (error) {
+        this.logger.warn(
+          `⚠️ ${operationName} failed on attempt ${attempt}:`,
+          error.message,
+        );
+
+        if (attempt === retries) {
+          this.logger.error(
+            `❌ ${operationName} failed after ${retries} attempts`,
+          );
+          throw error;
+        }
+
+        // Wait before retry
+        await new Promise((resolve) =>
+          setTimeout(resolve, this.RETRY_DELAY_MS * attempt),
+        );
+      }
+    }
+  }
+
+  /**
+   * Lưu session của reviewer với retry logic
    */
   async saveSession(userId: string, socketId: string): Promise<void> {
-    try {
+    return this.retryOperation(async () => {
       const session: ReviewerSession = {
         userId,
         socketId,
@@ -39,43 +107,40 @@ export class ReviewerSessionService {
       await this.redis.sadd(this.ONLINE_REVIEWERS_KEY, userId);
 
       this.logger.log(
-        `Saved session for reviewer ${userId} with socket ${socketId}`,
+        `💾 Saved session for reviewer ${userId} with socket ${socketId}`,
       );
-    } catch (error) {
-      this.logger.error(
-        `Failed to save session for reviewer ${userId}:`,
-        error,
-      );
-      throw error;
-    }
+    }, `saveSession(${userId})`);
   }
 
   /**
-   * Lấy session của reviewer
+   * Lấy session của reviewer với retry logic
    */
   async getSession(userId: string): Promise<ReviewerSession | null> {
-    try {
+    return this.retryOperation(async () => {
       const sessionKey = `${this.SESSION_KEY_PREFIX}${userId}`;
       const sessionData = await this.redis.get(sessionKey);
 
       if (!sessionData) {
+        this.logger.debug(`📭 No session found for reviewer ${userId}`);
         return null;
       }
 
-      return JSON.parse(sessionData);
-    } catch (error) {
-      this.logger.error(`Failed to get session for reviewer ${userId}:`, error);
-      return null;
-    }
+      const session = JSON.parse(sessionData) as ReviewerSession;
+      this.logger.debug(`📄 Retrieved session for reviewer ${userId}`);
+      return session;
+    }, `getSession(${userId})`);
   }
 
   /**
    * Cập nhật activity của reviewer
    */
   async updateActivity(userId: string): Promise<void> {
-    try {
+    return this.retryOperation(async () => {
       const session = await this.getSession(userId);
       if (!session) {
+        this.logger.warn(
+          `⚠️ Cannot update activity: No session found for reviewer ${userId}`,
+        );
         return;
       }
 
@@ -87,46 +152,39 @@ export class ReviewerSessionService {
         this.SESSION_TTL,
         JSON.stringify(session),
       );
-    } catch (error) {
-      this.logger.error(
-        `Failed to update activity for reviewer ${userId}:`,
-        error,
-      );
-    }
+
+      this.logger.debug(`🔄 Updated activity for reviewer ${userId}`);
+    }, `updateActivity(${userId})`);
   }
 
   /**
    * Xóa session của reviewer
    */
   async removeSession(userId: string): Promise<void> {
-    try {
+    return this.retryOperation(async () => {
       const sessionKey = `${this.SESSION_KEY_PREFIX}${userId}`;
 
       // Xóa session
-      await this.redis.del(sessionKey);
+      const deleted = await this.redis.del(sessionKey);
 
       // Xóa khỏi danh sách online reviewers
-      await this.redis.srem(this.ONLINE_REVIEWERS_KEY, userId);
+      const removed = await this.redis.srem(this.ONLINE_REVIEWERS_KEY, userId);
 
-      this.logger.log(`Removed session for reviewer ${userId}`);
-    } catch (error) {
-      this.logger.error(
-        `Failed to remove session for reviewer ${userId}:`,
-        error,
+      this.logger.log(
+        `🗑️ Removed session for reviewer ${userId} (deleted: ${deleted}, removed from online: ${removed})`,
       );
-    }
+    }, `removeSession(${userId})`);
   }
 
   /**
    * Lấy danh sách reviewers đang online
    */
   async getOnlineReviewers(): Promise<string[]> {
-    try {
-      return await this.redis.smembers(this.ONLINE_REVIEWERS_KEY);
-    } catch (error) {
-      this.logger.error('Failed to get online reviewers:', error);
-      return [];
-    }
+    return this.retryOperation(async () => {
+      const reviewers = await this.redis.smembers(this.ONLINE_REVIEWERS_KEY);
+      this.logger.debug(`👥 Found ${reviewers.length} online reviewers`);
+      return reviewers;
+    }, 'getOnlineReviewers');
   }
 
   /**
@@ -135,10 +193,12 @@ export class ReviewerSessionService {
   async isReviewerOnline(userId: string): Promise<boolean> {
     try {
       const session = await this.getSession(userId);
-      return session !== null && session.isOnline;
+      const isOnline = session !== null && session.isOnline;
+      this.logger.debug(`🔍 Reviewer ${userId} online status: ${isOnline}`);
+      return isOnline;
     } catch (error) {
       this.logger.error(
-        `Failed to check if reviewer ${userId} is online:`,
+        `❌ Failed to check if reviewer ${userId} is online:`,
         error,
       );
       return false;
@@ -151,10 +211,14 @@ export class ReviewerSessionService {
   async getSocketId(userId: string): Promise<string | null> {
     try {
       const session = await this.getSession(userId);
-      return session ? session.socketId : null;
+      const socketId = session ? session.socketId : null;
+      this.logger.debug(
+        `🔌 Socket ID for reviewer ${userId}: ${socketId || 'not found'}`,
+      );
+      return socketId;
     } catch (error) {
       this.logger.error(
-        `Failed to get socket ID for reviewer ${userId}:`,
+        `❌ Failed to get socket ID for reviewer ${userId}:`,
         error,
       );
       return null;
@@ -173,12 +237,21 @@ export class ReviewerSessionService {
         const session = await this.getSession(userId);
         if (session) {
           sessions.push(session);
+        } else {
+          // Cleanup orphaned online reference
+          await this.redis.srem(this.ONLINE_REVIEWERS_KEY, userId);
+          this.logger.warn(
+            `🧹 Cleaned up orphaned online reference for ${userId}`,
+          );
         }
       }
 
+      this.logger.debug(
+        `📊 Retrieved details for ${sessions.length} online reviewers`,
+      );
       return sessions;
     } catch (error) {
-      this.logger.error('Failed to get online reviewers details:', error);
+      this.logger.error('❌ Failed to get online reviewers details:', error);
       return [];
     }
   }
@@ -191,12 +264,17 @@ export class ReviewerSessionService {
       const onlineUserIds = await this.getOnlineReviewers();
       const now = new Date().getTime();
       const TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+      let cleanedCount = 0;
 
       for (const userId of onlineUserIds) {
         const session = await this.getSession(userId);
         if (!session) {
           // Session không tồn tại, xóa khỏi online list
           await this.redis.srem(this.ONLINE_REVIEWERS_KEY, userId);
+          cleanedCount++;
+          this.logger.debug(
+            `🧹 Cleaned up missing session reference for ${userId}`,
+          );
           continue;
         }
 
@@ -204,11 +282,20 @@ export class ReviewerSessionService {
         if (now - lastActivity > TIMEOUT_MS) {
           // Session đã timeout, xóa
           await this.removeSession(userId);
-          this.logger.log(`Cleaned up expired session for reviewer ${userId}`);
+          cleanedCount++;
+          this.logger.log(
+            `🧹 Cleaned up expired session for reviewer ${userId}`,
+          );
         }
       }
+
+      if (cleanedCount > 0) {
+        this.logger.log(
+          `🧹 Cleanup completed: ${cleanedCount} expired sessions removed`,
+        );
+      }
     } catch (error) {
-      this.logger.error('Failed to cleanup expired sessions:', error);
+      this.logger.error('❌ Failed to cleanup expired sessions:', error);
     }
   }
 
@@ -217,9 +304,11 @@ export class ReviewerSessionService {
    */
   async getOnlineReviewersCount(): Promise<number> {
     try {
-      return await this.redis.scard(this.ONLINE_REVIEWERS_KEY);
+      const count = await this.redis.scard(this.ONLINE_REVIEWERS_KEY);
+      this.logger.debug(`📊 Online reviewers count: ${count}`);
+      return count;
     } catch (error) {
-      this.logger.error('Failed to get online reviewers count:', error);
+      this.logger.error('❌ Failed to get online reviewers count:', error);
       return 0;
     }
   }
@@ -230,9 +319,11 @@ export class ReviewerSessionService {
   async getAllOnlineSocketIds(): Promise<string[]> {
     try {
       const sessions = await this.getOnlineReviewersDetails();
-      return sessions.map((session) => session.socketId);
+      const socketIds = sessions.map((session) => session.socketId);
+      this.logger.debug(`🔌 Retrieved ${socketIds.length} online socket IDs`);
+      return socketIds;
     } catch (error) {
-      this.logger.error('Failed to get all online socket IDs:', error);
+      this.logger.error('❌ Failed to get all online socket IDs:', error);
       return [];
     }
   }
@@ -241,7 +332,7 @@ export class ReviewerSessionService {
    * Set reviewer offline (giữ session nhưng đánh dấu offline)
    */
   async setReviewerOffline(userId: string): Promise<void> {
-    try {
+    return this.retryOperation(async () => {
       const session = await this.getSession(userId);
       if (session) {
         session.isOnline = false;
@@ -258,10 +349,8 @@ export class ReviewerSessionService {
       // Xóa khỏi online list nhưng giữ session
       await this.redis.srem(this.ONLINE_REVIEWERS_KEY, userId);
 
-      this.logger.log(`Set reviewer ${userId} offline`);
-    } catch (error) {
-      this.logger.error(`Failed to set reviewer ${userId} offline:`, error);
-    }
+      this.logger.log(`📴 Set reviewer ${userId} offline`);
+    }, `setReviewerOffline(${userId})`);
   }
 
   /**
@@ -270,9 +359,12 @@ export class ReviewerSessionService {
   async setReviewerOnline(userId: string, socketId: string): Promise<void> {
     try {
       await this.saveSession(userId, socketId);
-      this.logger.log(`Set reviewer ${userId} online with socket ${socketId}`);
+      this.logger.log(
+        `📱 Set reviewer ${userId} online with socket ${socketId}`,
+      );
     } catch (error) {
-      this.logger.error(`Failed to set reviewer ${userId} online:`, error);
+      this.logger.error(`❌ Failed to set reviewer ${userId} online:`, error);
+      throw error;
     }
   }
 
@@ -288,7 +380,7 @@ export class ReviewerSessionService {
       const onlineReviewerIds = await this.getOnlineReviewers();
 
       if (onlineReviewerIds.length === 0) {
-        this.logger.warn('No online reviewers available');
+        this.logger.warn('⚠️ No online reviewers available');
         return null;
       }
 
@@ -323,13 +415,13 @@ export class ReviewerSessionService {
       const selectedReviewer = reviewerCounts[0];
 
       this.logger.debug(
-        `Selected reviewer ${selectedReviewer.reviewerId} with ${selectedReviewer.conversationCount} active conversations`,
+        `👤 Selected reviewer ${selectedReviewer.reviewerId} with ${selectedReviewer.conversationCount} active conversations`,
       );
 
       return selectedReviewer;
     } catch (error) {
       this.logger.error(
-        'Failed to get reviewer with least conversations:',
+        '❌ Failed to get reviewer with least conversations:',
         error,
       );
       return null;
@@ -379,9 +471,12 @@ export class ReviewerSessionService {
       // Sắp xếp theo workload
       workloadStats.sort((a, b) => a.conversationCount - b.conversationCount);
 
+      this.logger.debug(
+        `📊 Workload stats generated for ${workloadStats.length} reviewers`,
+      );
       return workloadStats;
     } catch (error) {
-      this.logger.error('Failed to get reviewer workload stats:', error);
+      this.logger.error('❌ Failed to get reviewer workload stats:', error);
       return [];
     }
   }
@@ -390,7 +485,7 @@ export class ReviewerSessionService {
    * Cache socketId independently (for unauthenticated connections)
    */
   async cacheSocketId(socketId: string): Promise<void> {
-    try {
+    return this.retryOperation(async () => {
       const key = `${this.SOCKET_CACHE_KEY}:${socketId}`;
       await this.redis.setex(
         key,
@@ -401,24 +496,84 @@ export class ReviewerSessionService {
         }),
       );
 
-      this.logger.log(`Cached socket ID: ${socketId}`);
-    } catch (error) {
-      this.logger.error(`Error caching socket ID ${socketId}:`, error);
-      throw error;
-    }
+      this.logger.log(`💾 Cached socket ID: ${socketId}`);
+    }, `cacheSocketId(${socketId})`);
   }
 
   /**
    * Remove socket ID cache (for disconnected unauthenticated sockets)
    */
   async removeSocketIdCache(socketId: string): Promise<void> {
-    try {
+    return this.retryOperation(async () => {
       const key = `${this.SOCKET_CACHE_KEY}:${socketId}`;
-      await this.redis.del(key);
+      const deleted = await this.redis.del(key);
 
-      this.logger.log(`Removed socket ID cache: ${socketId}`);
+      this.logger.log(
+        `🗑️ Removed socket ID cache: ${socketId} (deleted: ${deleted})`,
+      );
+    }, `removeSocketIdCache(${socketId})`);
+  }
+
+  /**
+   * Health check cho Redis connection
+   */
+  async healthCheck(): Promise<{
+    isHealthy: boolean;
+    latency: number;
+    operations: {
+      ping: boolean;
+      set: boolean;
+      get: boolean;
+      del: boolean;
+    };
+  }> {
+    const startTime = Date.now();
+    const operations = {
+      ping: false,
+      set: false,
+      get: false,
+      del: false,
+    };
+
+    try {
+      // Test ping
+      const pong = await this.redis.ping();
+      operations.ping = pong === 'PONG';
+
+      // Test set/get/del
+      const testKey = `health_check_${Date.now()}`;
+      const testValue = 'health_test';
+
+      await this.redis.set(testKey, testValue, 'EX', 10);
+      operations.set = true;
+
+      const retrieved = await this.redis.get(testKey);
+      operations.get = retrieved === testValue;
+
+      const deleted = await this.redis.del(testKey);
+      operations.del = deleted === 1;
+
+      const latency = Date.now() - startTime;
+      const isHealthy = Object.values(operations).every(Boolean);
+
+      this.logger.debug(
+        `🏥 Redis health check: ${
+          isHealthy ? 'HEALTHY' : 'UNHEALTHY'
+        } (${latency}ms)`,
+      );
+
+      return {
+        isHealthy,
+        latency,
+        operations,
+      };
     } catch (error) {
-      this.logger.error(`Error removing socket ID cache ${socketId}:`, error);
+      this.logger.error('❌ Redis health check failed:', error);
+      return {
+        isHealthy: false,
+        latency: Date.now() - startTime,
+        operations,
+      };
     }
   }
 }

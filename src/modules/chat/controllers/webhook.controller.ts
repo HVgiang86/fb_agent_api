@@ -1,25 +1,18 @@
 import {
+  Body,
   Controller,
   Post,
-  Body,
-  Headers,
+  Get,
   HttpCode,
-  HttpException,
   HttpStatus,
   Logger,
-  Get,
+  Req,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiHeader,
-  ApiBody,
-} from '@nestjs/swagger';
-import { ConfigService } from '@nestjs/config';
-import { HttpResponse, BaseResponse } from '../../../types/http-response';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { FacebookWebhookPayloadDto } from '../dto/facebook-webhook.dto';
-import { MessageProcessingService } from '../services/message-processing.service';
+import { ReviewerSessionService } from '../services/reviewer-session.service';
+import { WebhookMessageService } from '../services/webhook-message.service';
+import { HttpResponse, BaseResponse } from '../../../types/http-response';
 
 @ApiTags('Webhook')
 @Controller('webhook')
@@ -27,155 +20,90 @@ export class WebhookController {
   private readonly logger = new Logger(WebhookController.name);
 
   constructor(
-    private readonly configService: ConfigService,
-    private readonly messageProcessingService: MessageProcessingService,
+    private readonly reviewerSessionService: ReviewerSessionService,
+    private readonly webhookMessageService: WebhookMessageService,
   ) {}
 
-  @ApiOperation({
-    summary: 'Nhận tin nhắn từ Facebook webhook',
-    description:
-      'Webhook endpoint để nhận tin nhắn mới từ Facebook. Endpoint này xử lý tin nhắn và chuyển tiếp đến AI Agent hoặc reviewer.',
-  })
-  @ApiBody({
-    type: FacebookWebhookPayloadDto,
-    description: 'Payload tin nhắn từ Facebook webhook',
-  })
+  @ApiOperation({ summary: 'New Facebook message' })
   @ApiResponse({
     status: 200,
-    description: 'Tin nhắn đã được nhận và xử lý thành công',
-    schema: {
-      example: {
-        statusCode: 200,
-        message: 'Tin nhắn đã được nhận thành công',
-        data: {
-          messageId: 'fb_msg_123456789',
-          conversationId: 'conv_uuid',
-          customerId: 'customer_uuid',
-          status: 'received',
-          processedAt: '2024-01-01T10:00:00.000Z',
-        },
-      },
-    },
+    description: 'Webhook processed successfully',
   })
-  @ApiResponse({
-    status: 400,
-    description: 'Dữ liệu không hợp lệ',
-    schema: {
-      example: {
-        statusCode: 400,
-        message: 'Dữ liệu tin nhắn không hợp lệ',
-      },
-    },
-  })
-  @ApiResponse({
-    status: 500,
-    description: 'Lỗi server internal',
-    schema: {
-      example: {
-        statusCode: 500,
-        message: 'Xử lý tin nhắn thất bại',
-      },
-    },
-  })
-  @Post('facebook/message')
-  @HttpCode(200)
-  async receiveMessage(
-    @Body() payload: FacebookWebhookPayloadDto,
-  ): Promise<BaseResponse> {
+  @Post('facebook')
+  @HttpCode(HttpStatus.OK)
+  async handleWebhook(
+    @Body() webhookData: FacebookWebhookPayloadDto,
+  ): Promise<string> {
     try {
-      this.logger.log(`Received webhook from Facebook: ${payload.messageId}`);
-
-      // 1. Validate payload
-      this.validatePayload(payload);
-
-      // 2. Process message
-      const result = await this.messageProcessingService.processIncomingMessage(
-        payload,
+      this.logger.log(
+        '📨 Received Facebook webhook:',
+        JSON.stringify(webhookData, null, 2),
       );
 
-      this.logger.log(`Successfully processed message ${payload.messageId}`);
+      // Xử lý bất đồng bộ theo flow yêu cầu
+      this.processWebhookAsync(webhookData).catch((error) => {
+        this.logger.error('❌ Async webhook processing failed:', error);
+      });
 
-      return HttpResponse.success(
-        {
-          messageId: payload.messageId,
-          conversationId: result.conversationId,
-          customerId: result.customerId,
-          status: 'received',
-          processedAt: new Date().toISOString(),
-        },
-        'Tin nhắn đã được nhận thành công',
-      );
+      // Trả về 200 ngay lập tức cho Facebook
+      return 'EVENT_RECEIVED';
     } catch (error) {
-      this.logger.error(
-        `Webhook processing failed for message ${payload?.messageId}:`,
-        error,
-      );
-
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      throw new HttpException(
-        'Xử lý tin nhắn thất bại',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      this.logger.error('Error processing Facebook webhook:', error);
+      throw error;
     }
   }
 
-  @ApiOperation({
-    summary: 'Webhook verification cho Facebook',
-    description:
-      'Endpoint để Facebook verify webhook subscription theo Facebook webhook verification protocol',
-  })
-  @ApiBody({
-    description: 'Verification payload từ Facebook',
-    schema: {
-      type: 'object',
-      properties: {
-        hub_mode: {
-          type: 'string',
-          example: 'subscribe',
-        },
-        hub_verify_token: {
-          type: 'string',
-          example: 'your_verify_token',
-        },
-        hub_challenge: {
-          type: 'string',
-          example: '1158201444',
-        },
-      },
-    },
-  })
-
   /**
-   * Validate webhook payload
+   * Xử lý webhook bất đồng bộ theo flow yêu cầu:
+   * 1. Lấy facebookId của customer
+   * 2. Tìm/tạo customer trong DB
+   * 3. Gọi AI agent để phân tích
+   * 4. Tìm user online
+   * 5. Tìm/tạo conversation
+   * 6. Tạo message
+   * 7. Gửi socket event
    */
-  private validatePayload(payload: FacebookWebhookPayloadDto): void {
-    if (!payload.messageId) {
-      throw new HttpException('messageId is required', HttpStatus.BAD_REQUEST);
-    }
-
-    if (!payload.content) {
-      throw new HttpException('content is required', HttpStatus.BAD_REQUEST);
-    }
-
-    if (!payload.customerInfo?.facebookId) {
-      throw new HttpException(
-        'customerInfo.facebookId is required',
-        HttpStatus.BAD_REQUEST,
+  private async processWebhookAsync(
+    webhookData: FacebookWebhookPayloadDto,
+  ): Promise<void> {
+    try {
+      this.logger.log(
+        `🔄 Starting async processing for message: ${webhookData.messageId}`,
       );
-    }
 
-    // Validate timestamp format
-    if (payload.timestamp) {
-      const timestamp = new Date(payload.timestamp);
-      if (isNaN(timestamp.getTime())) {
-        throw new HttpException(
-          'Invalid timestamp format',
-          HttpStatus.BAD_REQUEST,
+      // Extract message data from webhook
+      const messageData = {
+        messageId: webhookData.messageId,
+        content: webhookData.content,
+        customerInfo: {
+          facebookId: webhookData.customerInfo.facebookId,
+          facebookName: webhookData.customerInfo.facebookName,
+          avatarUrl: webhookData.customerInfo.avatarUrl,
+          profileUrl: webhookData.customerInfo.profileUrl,
+        },
+        timestamp: new Date(),
+      };
+
+      // Xử lý qua WebhookMessageService
+      const result = await this.webhookMessageService.processIncomingMessage(
+        messageData,
+      );
+
+      if (result.success) {
+        this.logger.log(
+          `✅ Successfully processed message ${webhookData.messageId}:`,
+          `Customer: ${result.customerId}, Conversation: ${result.conversationId}, User: ${result.assignedUserId}`,
+        );
+      } else {
+        this.logger.error(
+          `❌ Failed to process message ${webhookData.messageId}: ${result.error}`,
         );
       }
+    } catch (error) {
+      this.logger.error(
+        `💥 Critical error in async webhook processing for ${webhookData.messageId}:`,
+        error,
+      );
     }
   }
 }

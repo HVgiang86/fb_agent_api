@@ -1,7 +1,5 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { JwtModule } from '@nestjs/jwt';
-import { ConfigModule, ConfigService } from '@nestjs/config';
 
 // Entities
 import { Customer } from '../users/entities/customer.entity';
@@ -15,7 +13,12 @@ import { ReviewerFeedback } from './entities/reviewer-feedback.entity';
 import { CustomerService } from './services/customer.service';
 import { ReviewerSessionService } from './services/reviewer-session.service';
 import { ConversationService } from './services/conversation.service';
-import { MessageProcessingService } from './services/message-processing.service';
+import { MemorySocketCacheService } from './services/memory-socket-cache.service';
+import { MockAIAgentService } from './services/mock-ai-agent.service';
+import { WebhookMessageService } from './services/webhook-message.service';
+
+// Interfaces
+import { ISocketCacheService } from './interfaces/socket-cache.interface';
 
 // Controllers
 import { CustomerController } from './controllers/customer.controller';
@@ -43,31 +46,26 @@ import { UserModule } from '../users/user.module';
     ]),
     RedisModule,
     UserModule,
-    JwtModule.registerAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.get('JWT_SECRET'),
-        signOptions: {
-          expiresIn: configService.get('JWT_EXPIRATION_TIME'),
-        },
-      }),
-    }),
   ],
   controllers: [CustomerController, ConversationController, WebhookController],
   providers: [
     CustomerService,
     ReviewerSessionService,
     ConversationService,
-    MessageProcessingService,
     ChatGateway,
+    MemorySocketCacheService,
+    MockAIAgentService,
+    WebhookMessageService,
+    {
+      provide: 'ISocketCacheService',
+      useClass: MemorySocketCacheService,
+    },
   ],
   exports: [
     CustomerService,
     ReviewerSessionService,
     ConversationService,
-    MessageProcessingService,
-    ChatGateway,
+    WebhookMessageService,
   ],
 })
 export class ChatModule {}

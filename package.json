@@ -28,6 +28,7 @@
     "create:config-table": "mysql -h${MYSQL_HOST} -P${MYSQL_PORT} -u${MYSQL_USER} -p${MYSQL_PASSWORD} ${MYSQL_DB} < scripts/create-and-setup-system-config.sql",
     "setup:config-sql": "./scripts/setup-config-sql.sh",
     "test:redis": "ts-node scripts/test-redis.ts",
+    "test:socketio": "ts-node scripts/test-socketio.ts",
     "start:redis": "yarn test:redis && yarn start:dev"
   },
   "dependencies": {
@@ -39,10 +40,10 @@
     "@nestjs/jwt": "^8.0.1",
     "@nestjs/passport": "^8.2.2",
     "@nestjs/platform-express": "^8.1.1",
-    "@nestjs/platform-socket.io": "^11.1.4",
+    "@nestjs/platform-socket.io": "^8.1.1",
     "@nestjs/swagger": "^5.2.1",
     "@nestjs/typeorm": "^8.1.4",
-    "@nestjs/websockets": "^11.1.4",
+    "@nestjs/websockets": "^8.1.1",
     "@slack/webhook": "^7.0.4",
     "@types/hapi__joi": "^17.1.8",
     "@types/ioredis": "^5.0.0",
@@ -79,6 +80,7 @@
     "eslint-plugin-prettier": "^3.4.1",
     "jest": "^27.3.0",
     "prettier": "^2.4.1",
+    "socket.io-client": "^4.8.1",
     "source-map-support": "^0.5.20",
     "supertest": "^6.1.6",
     "ts-jest": "^27.0.7",
