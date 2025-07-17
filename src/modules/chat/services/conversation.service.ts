@@ -257,7 +257,7 @@ export class ConversationService {
         caseResolved: true,
         resolvedAt: new Date(),
         resolvedBy,
-        status: ConversationStatus.CLOSED,
+        status: ConversationStatus.DEACTIVE,
       });
 
       this.logger.log(
@@ -307,14 +307,10 @@ export class ConversationService {
     reviewerId: string,
     filters: {
       status?: ConversationStatus;
-      caseResolved?: boolean;
-      page?: number;
-      limit?: number;
     } = {},
   ) {
     try {
-      const { status, caseResolved, page = 1, limit = 20 } = filters;
-      const skip = (page - 1) * limit;
+      const { status } = filters;
 
       const queryBuilder = this.conversationRepository
         .createQueryBuilder('conversation')
@@ -326,26 +322,15 @@ export class ConversationService {
         queryBuilder.andWhere('conversation.status = :status', { status });
       }
 
-      if (typeof caseResolved === 'boolean') {
-        queryBuilder.andWhere('conversation.caseResolved = :caseResolved', {
-          caseResolved,
-        });
-      }
-
-      const [conversations, total] = await queryBuilder
+      const conversations = await queryBuilder
         .orderBy('conversation.lastMessageAt', 'DESC')
-        .skip(skip)
-        .take(limit)
-        .getManyAndCount();
+        .getMany();
 
       return {
         conversations: conversations.map((conversation) =>
           this.formatConversationResponse(conversation),
         ),
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
+        total: conversations.length,
       };
     } catch (error) {
       this.logger.error(

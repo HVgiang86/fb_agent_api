@@ -2,6 +2,8 @@
  * Message Types và Interfaces cho hệ thống Chat
  */
 
+import { ConversationStatus } from './enums';
+
 // Enum cho các trạng thái của tin nhắn
 export enum MessageStatus {
   RECEIVED = 'received',
@@ -63,14 +65,7 @@ export interface CachedConversation {
   updatedAt: string; // ISO string
 }
 
-// Enum cho trạng thái conversation
-export enum ConversationStatus {
-  ACTIVE = 'active',
-  WAITING_REVIEW = 'waiting_review',
-  IN_REVIEW = 'in_review',
-  RESOLVED = 'resolved',
-  CLOSED = 'closed',
-}
+// Enum cho trạng thái conversation - removed duplicated, use from enums.ts
 
 // Interface cho Message Queue Data
 export interface MessageQueueData {

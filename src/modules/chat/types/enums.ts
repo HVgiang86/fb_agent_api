@@ -4,9 +4,7 @@
 
 export enum ConversationStatus {
   ACTIVE = 'active',
-  INACTIVE = 'inactive',
-  CLOSED = 'closed',
-  RESOLVED = 'resolved',
+  DEACTIVE = 'deactive',
 }
 
 export enum SenderType {

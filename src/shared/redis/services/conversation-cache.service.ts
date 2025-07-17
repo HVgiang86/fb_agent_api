@@ -3,9 +3,9 @@ import { InjectRedis } from '@nestjs-modules/ioredis';
 import Redis from 'ioredis';
 import {
   CachedConversation,
-  ConversationStatus,
   ReviewerAssignment,
 } from '../../../modules/chat/types/message.types';
+import { ConversationStatus } from '../../../modules/chat/types/enums';
 import { formatDateToISO } from '../../../utils/date-formatter';
 
 @Injectable()
@@ -199,7 +199,7 @@ export class ConversationCacheService {
       // Cập nhật conversation
       const updated = await this.updateConversationStatus(
         conversationId,
-        ConversationStatus.IN_REVIEW,
+        ConversationStatus.ACTIVE,
         { assignedReviewerId: reviewerId },
       );
 
@@ -469,7 +469,7 @@ export class ConversationCacheService {
 
           if (
             age > maxAge &&
-            conversation.status === ConversationStatus.CLOSED
+            conversation.status === ConversationStatus.DEACTIVE
           ) {
             await this.redis.del(key);
             await this.redis.srem(

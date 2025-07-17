@@ -13,6 +13,7 @@ import { ReviewerFeedback } from './entities/reviewer-feedback.entity';
 import { CustomerService } from './services/customer.service';
 import { ReviewerSessionService } from './services/reviewer-session.service';
 import { ConversationService } from './services/conversation.service';
+import { MessageService } from './services/message.service';
 import { MemorySocketCacheService } from './services/memory-socket-cache.service';
 import { MockAIAgentService } from './services/mock-ai-agent.service';
 import { WebhookMessageService } from './services/webhook-message.service';
@@ -52,6 +53,7 @@ import { UserModule } from '../users/user.module';
     CustomerService,
     ReviewerSessionService,
     ConversationService,
+    MessageService,
     ChatGateway,
     MemorySocketCacheService,
     MockAIAgentService,
@@ -65,6 +67,7 @@ import { UserModule } from '../users/user.module';
     CustomerService,
     ReviewerSessionService,
     ConversationService,
+    MessageService,
     WebhookMessageService,
   ],
 })
