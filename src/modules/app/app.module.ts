@@ -6,11 +6,9 @@ import * as Joi from '@hapi/joi';
 import { DatabaseModule } from '../database/database.module';
 import { AuthenticationModule } from '../auth/authentication.module';
 import { UserModule } from '../users/user.module';
-import { RunModule } from '../run/run.module';
 import { GlobalModule } from '../global/global.module';
 import { SystemConfigModule } from '../system-config/system-config.module';
 import { RedisModule } from '../../shared/redis/redis.module';
-import { CacheModule } from '../cache/cache.module';
 import { ChatModule } from '../chat/chat.module';
 
 @Module({
@@ -44,10 +42,8 @@ import { ChatModule } from '../chat/chat.module';
     DatabaseModule,
     AuthenticationModule,
     UserModule,
-    RunModule,
     SystemConfigModule,
     RedisModule,
-    CacheModule,
     ChatModule,
   ],
   controllers: [AppController],
